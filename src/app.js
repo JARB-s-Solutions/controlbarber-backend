@@ -2,8 +2,9 @@ import express from "express";
 import cors from "cors";
 import helmet  from "helmet";
 import morgan from "morgan";
-import authRoutes from "./routes/authRoutes.js"
-import serviceRoutes from "./routes/serviceRoutes.js"
+import authRoutes from "./routes/authRoutes.js";
+import serviceRoutes from "./routes/serviceRoutes.js";
+import scheduleRoutes from './routes/scheduleRoutes.js';
 
 // Inicializar la app
 
@@ -27,6 +28,7 @@ app.use(cors());
 // Rutas de la API
 app.use("/api/auth", authRoutes);
 app.use("/api/services", serviceRoutes);
+app.use('/api/schedule', scheduleRoutes);
 
 // RUTA DE PRUEBA
 app.get("/", (req, res) => {
