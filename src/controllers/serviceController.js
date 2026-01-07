@@ -1,0 +1,105 @@
+// --- SERVICIOS ---
+
+import { PrismaClient } from '@prisma/client';
+import { z } from 'zod';
+
+const prisma = new PrismaClient();
+
+// Esquema de validación
+const serviceSchema = z.object({
+    name: z.string().min(1, "El nombre es obligatorio"),
+    price: z.number().min(0, "El precio no puede ser negativo"),
+    durationMin: z.number().int().min(5, "La duración mínima es de 5 minutos")
+});
+
+// Crear un servicio
+export const createService = async (req, res) => {
+    try {
+        const data = serviceSchema.parse(req.body);
+        const barberId = req.user.id; // Viene del token
+
+        const newService = await prisma.service.create({
+            data: {
+                ...data,
+                barberId: barberId
+            }
+        });
+
+        res.status(201).json(newService);
+
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: error.errors });
+        }
+        res.status(500).json({ error: "Error al crear el servicio" });
+    }
+};
+
+// Obtener mis servicios (Solo los activos)
+export const getMyServices = async (req, res) => {
+    try {
+        const services = await prisma.service.findMany({
+            where: {
+                barberId: req.user.id,
+                isActive: true // Solo traemos los visibles
+            }
+        });
+        res.json(services);
+    } catch (error) {
+        res.status(500).json({ error: "Error al obtener servicios" });
+    }
+};
+
+// Actualizar servicio
+export const updateService = async (req, res) => {
+    const { id } = req.params; // ID del servicio a editar
+    
+    try {
+        const data = serviceSchema.partial().parse(req.body); // .partial() hace que los campos sean opcionales
+
+        // Solo actualiza SI el ID coincide Y el barberId es el dueño.
+        const result = await prisma.service.updateMany({
+            where: {
+                id: parseInt(id),
+                barberId: req.user.id 
+            },
+            data: data
+        });
+
+        if (result.count === 0) {
+            return res.status(404).json({ error: "Servicio no encontrado o no te pertenece" });
+        }
+
+        res.json({ message: "Servicio actualizado correctamente" });
+
+    } catch (error) {
+        res.status(500).json({ error: "Error al actualizar servicio" });
+    }
+};
+
+// Eliminar servicio (Soft Delete)
+export const deleteService = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // Marcamos isActive = false en lugar de borrar
+        const result = await prisma.service.updateMany({
+            where: {
+                id: parseInt(id),
+                barberId: req.user.id
+            },
+            data: {
+                isActive: false
+            }
+        });
+
+        if (result.count === 0) {
+            return res.status(404).json({ error: "Servicio no encontrado o no te pertenece" });
+        }
+
+        res.json({ message: "Servicio eliminado correctamente" });
+
+    } catch (error) {
+        res.status(500).json({ error: "Error al eliminar servicio" });
+    }
+};
