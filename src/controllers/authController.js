@@ -1,9 +1,8 @@
 import { PrismaClient } from "@prisma/client";
-import { email, z } from "zod";
+import { z } from "zod";
 import { hashPassword } from "../utils/password.js";
 import { comparePassword } from "../utils/password.js";
 import { generateToken } from "../utils/jwt.js";
-import { error } from "console";
 
 const prisma = new PrismaClient();
 
@@ -102,6 +101,8 @@ const loginSchema = z.object({
   password: z.string().min(1, "La contraseña es obligatoria")
 });
 
+
+
 export const login = async (req, res) => {
   try {
     // Validar datos
@@ -153,4 +154,29 @@ export const login = async (req, res) => {
     console.error(error);
     res.status(500).json({ error: "Error interno del servidor" });
   }
+};
+
+
+// Esquema de validación para Perfil
+export const getProfile = async (req, res) => {
+    // El token ya se valido en el middleware y ya se sabe quien es el usuario
+    const userId = req.user.id;
+
+    try {
+        const user = await prisma.barber.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                fullName: true,
+                email: true,
+                phone: true,
+                role: true,
+                subscription: true
+            }
+        });
+
+        res.json(user);
+    } catch (error) {
+        res.status(500).json({ error: "Error al obtener el perfil del usuario" });
+    }
 };
