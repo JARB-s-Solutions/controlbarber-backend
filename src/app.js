@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet  from "helmet";
 import morgan from "morgan";
+import authRoutes from "./routes/authRoutes.js"
 
 // Inicializar la app
 
@@ -21,6 +22,9 @@ app.use(express.urlencoded({ extended: true }));
 
 // CORS
 app.use(cors());
+
+// Rutas de la API
+app.use("/api/auth", authRoutes);
 
 // RUTA DE PRUEBA
 app.get("/", (req, res) => {
