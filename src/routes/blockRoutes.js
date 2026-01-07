@@ -1,0 +1,13 @@
+import { Router } from 'express';
+import { createBlock, getMyBlocks, deleteBlock } from '../controllers/blockController.js';
+import { protect } from '../middlewares/authMiddleware.js';
+
+const router = Router();
+
+router.use(protect); // Todas las rutas requieren autenticación
+
+router.post('/', createBlock);
+router.get('/', getMyBlocks);
+router.delete('/:id', deleteBlock);
+
+export default router;

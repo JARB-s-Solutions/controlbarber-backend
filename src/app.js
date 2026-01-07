@@ -5,6 +5,7 @@ import morgan from "morgan";
 import authRoutes from "./routes/authRoutes.js";
 import serviceRoutes from "./routes/serviceRoutes.js";
 import scheduleRoutes from './routes/scheduleRoutes.js';
+import blockRoutes from './routes/blockRoutes.js';
 
 // Inicializar la app
 
@@ -29,6 +30,7 @@ app.use(cors());
 app.use("/api/auth", authRoutes);
 app.use("/api/services", serviceRoutes);
 app.use('/api/schedule', scheduleRoutes);
+app.use('/api/blocks', blockRoutes);
 
 // RUTA DE PRUEBA
 app.get("/", (req, res) => {
