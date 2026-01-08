@@ -153,3 +153,47 @@ export const getMyAppointments = async (req, res) => {
         res.status(500).json({ error: "Error al obtener citas" });
     }
 };
+
+
+
+// Esquema para validar que el estado sea válido
+const updateStatusSchema = z.object({
+    status: z.enum(['PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'], {
+        errorMap: () => ({ message: "Estado no válido" })
+    })
+});
+
+// Actualizar estado (Cancelar, Completar, etc)
+export const updateAppointmentStatus = async (req, res) => {
+    const { id } = req.params; // ID de la cita en la URL
+
+    try {
+        const { status } = updateStatusSchema.parse(req.body);
+        const barberId = req.user.id;
+
+        // Verificar que la cita exista y pertenezca al barbero
+        // (Usamos updateMany como truco de seguridad: solo actualiza si coincide ID y Barbero)
+        const result = await prisma.appointment.updateMany({
+            where: {
+                id: id,
+                barberId: barberId 
+            },
+            data: {
+                status: status
+            }
+        });
+
+        if (result.count === 0) {
+            return res.status(404).json({ error: "Cita no encontrada o no te pertenece" });
+        }
+
+        res.json({ message: `Cita actualizada a ${status}` });
+
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: error.errors });
+        }
+        console.error(error);
+        res.status(500).json({ error: "Error al actualizar cita" });
+    }
+};

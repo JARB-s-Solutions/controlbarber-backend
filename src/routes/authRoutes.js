@@ -9,6 +9,7 @@ router.post('/register', register);
 router.post('/login', login);
 
 // Rutas Privadas (Autenticadas)
-router.get('/profile', protect, getProfile);
+router.use(protect);
+router.get('/profile', getProfile);
 
 export default router;
