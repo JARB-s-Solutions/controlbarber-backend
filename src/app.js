@@ -6,6 +6,7 @@ import authRoutes from "./routes/authRoutes.js";
 import serviceRoutes from "./routes/serviceRoutes.js";
 import scheduleRoutes from './routes/scheduleRoutes.js';
 import blockRoutes from './routes/blockRoutes.js';
+import appointmentRoutes from './routes/appointmentRoutes.js';
 
 // Inicializar la app
 
@@ -31,6 +32,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/services", serviceRoutes);
 app.use('/api/schedule', scheduleRoutes);
 app.use('/api/blocks', blockRoutes);
+app.use('/api/appointments', appointmentRoutes);
 
 // RUTA DE PRUEBA
 app.get("/", (req, res) => {
