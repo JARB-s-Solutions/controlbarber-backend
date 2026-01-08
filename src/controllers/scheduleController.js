@@ -4,7 +4,7 @@ import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat.js';
 import utc from 'dayjs/plugin/utc.js'; // 1. Importante: UTC
 
-// Activamos los plugins
+// 2. Activamos los plugins
 dayjs.extend(customParseFormat);
 dayjs.extend(utc);
 
