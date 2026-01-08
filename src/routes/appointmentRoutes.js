@@ -3,6 +3,7 @@ import { protect } from '../middlewares/authMiddleware.js';
 import { getAvailability } from '../controllers/availabilityController.js';
 import { createAppointment } from '../controllers/appointmentController.js';
 import { getMyAppointments } from '../controllers/appointmentController.js';
+import { updateAppointmentStatus } from '../controllers/appointmentController.js';
 
 
 const router = Router();
@@ -14,6 +15,8 @@ router.post('/', createAppointment);
 
 
 // Rutas Privadas (Barbero)
-router.get('/', protect, getMyAppointments);
+router.use(protect);
+router.get('/', getMyAppointments);
+router.patch('/:id/status', updateAppointmentStatus);
 
 export default router;
