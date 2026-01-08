@@ -105,3 +105,51 @@ export const createAppointment = async (req, res) => {
         res.status(500).json({ error: "Error al crear la cita" });
     }
 };
+
+
+// Validación para el filtro de fecha
+const getAppointmentsSchema = z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato YYYY-MM-DD").optional(),
+});
+
+export const getMyAppointments = async (req, res) => {
+    try {
+        const { date } = getAppointmentsSchema.parse(req.query);
+        const barberId = req.user.id; // Viene del token
+
+        const whereClause = {
+            barberId: barberId
+        };
+
+        // Si envía fecha, filtramos por ese día (De 00:00 a 23:59 UTC del día seleccionado)
+        if (date) {
+            const startOfDay = dayjs.utc(date).startOf('day').toDate();
+            const endOfDay = dayjs.utc(date).endOf('day').toDate();
+
+            whereClause.date = {
+                gte: startOfDay,
+                lte: endOfDay
+            };
+        }
+
+        const appointments = await prisma.appointment.findMany({
+            where: whereClause,
+            include: {
+                client: true,  // Traer nombre y teléfono del cliente
+                service: true  // Traer nombre del corte y precio
+            },
+            orderBy: {
+                date: 'asc'    // Ordenar por hora (primero la de las 9am, luego 10am...)
+            }
+        });
+
+        res.json(appointments);
+
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: error.errors });
+        }
+        console.error(error);
+        res.status(500).json({ error: "Error al obtener citas" });
+    }
+};
