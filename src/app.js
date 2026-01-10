@@ -9,6 +9,7 @@ import blockRoutes from './routes/blockRoutes.js';
 import appointmentRoutes from './routes/appointmentRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import barberRoutes from './routes/barberRoutes.js';
+import galleryRoutes from './routes/galleryRoutes.js';
 
 // Inicializar la app
 
@@ -37,6 +38,7 @@ app.use('/api/blocks', blockRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/barbers', barberRoutes);
+app.use('/api/gallery', galleryRoutes);
 
 // RUTA DE PRUEBA
 app.get("/", (req, res) => {
