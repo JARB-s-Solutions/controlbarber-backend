@@ -10,6 +10,7 @@ import appointmentRoutes from './routes/appointmentRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import barberRoutes from './routes/barberRoutes.js';
 import galleryRoutes from './routes/galleryRoutes.js';
+import clientRoutes from './routes/clientRoutes.js';
 
 // Inicializar la app
 
@@ -39,6 +40,7 @@ app.use('/api/appointments', appointmentRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/barbers', barberRoutes);
 app.use('/api/gallery', galleryRoutes);
+app.use('/api/clients', clientRoutes);
 
 // RUTA DE PRUEBA
 app.get("/", (req, res) => {
