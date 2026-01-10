@@ -3,7 +3,6 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
 
-// Activamos los plugins necesarios
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
@@ -12,30 +11,22 @@ const prisma = new PrismaClient();
 export const getDashboardStats = async (req, res) => {
     try {
         const barberId = req.user.id;
-        
-        // RECIBIR LA ZONA HORARIA DEL CLIENTE
-        // Si el frontend no la manda, usamos 'UTC' por defecto para que no falle.
         const userTimeZone = req.query.timeZone || 'UTC'; 
 
-        // Calcular "Ahora" en la zona del usuario
         const now = dayjs().tz(userTimeZone);
-
-        // Definir los límites del día SEGÚN EL USUARIO
-        // startOf('day') buscará la zona que envíes.
-        // .toDate() lo convertirá al instante UTC exacto que Prisma necesita.
+        
         const startOfToday = now.startOf('day').toDate();
         const endOfToday = now.endOf('day').toDate();
         
         const startOfMonth = now.startOf('month').toDate();
         const endOfMonth = now.endOf('month').toDate();
 
-        // --- Debug Log Para ver en consola qué está calculando
-        console.log(`Zona Usuario: ${userTimeZone}`);
-        console.log(`Buscando desde (UTC): ${startOfToday.toISOString()}`);
-        console.log(`Hasta (UTC): ${endOfToday.toISOString()}`);
+        // =======================================================
+        // 1. CALCULOS DE HOY
+        // =======================================================
 
-        // Consultas a Base de Datos (Igual que antes)
-        const incomeToday = await prisma.appointment.aggregate({
+        // A. Citas Completadas (Ingresos)
+        const appointmentsToday = await prisma.appointment.aggregate({
             _sum: { frozenPrice: true },
             where: {
                 barberId,
@@ -44,32 +35,89 @@ export const getDashboardStats = async (req, res) => {
             }
         });
 
-        const incomeMonth = await prisma.appointment.aggregate({
-            _sum: { frozenPrice: true },
+        // B. Ventas Manuales (SOLO INGRESOS, Excluyendo retiros)
+        const salesToday = await prisma.transaction.aggregate({
+            _sum: { amount: true },
             where: {
                 barberId,
-                status: 'COMPLETED',
-                date: { gte: startOfMonth, lte: endOfMonth }
+                type: { not: 'WITHDRAWAL' }, // <--- IMPORTANTE: No sumar retiros como ventas
+                createdAt: { gte: startOfToday, lte: endOfToday }
             }
         });
 
+        // C. Retiros (Gastos)
+        const withdrawalsToday = await prisma.transaction.aggregate({
+            _sum: { amount: true },
+            where: {
+                barberId,
+                type: 'WITHDRAWAL', // <--- Solo retiros
+                createdAt: { gte: startOfToday, lte: endOfToday }
+            }
+        });
+
+        // =======================================================
+        // 2. CALCULOS DEL MES
+        // =======================================================
+
+        // A. Citas Mes
+        const appointmentsMonth = await prisma.appointment.aggregate({
+            _sum: { frozenPrice: true },
+            where: { barberId, status: 'COMPLETED', date: { gte: startOfMonth, lte: endOfMonth } }
+        });
+
+        // B. Ventas Mes
+        const salesMonth = await prisma.transaction.aggregate({
+            _sum: { amount: true },
+            where: { barberId, type: { not: 'WITHDRAWAL' }, createdAt: { gte: startOfMonth, lte: endOfMonth } }
+        });
+
+        // C. Retiros Mes
+        const withdrawalsMonth = await prisma.transaction.aggregate({
+            _sum: { amount: true },
+            where: { barberId, type: 'WITHDRAWAL', createdAt: { gte: startOfMonth, lte: endOfMonth } }
+        });
+
+        // =======================================================
+        // 3. MATEMÁTICA FINAL (NETO)
+        // =======================================================
+
+        // Valores numéricos seguros
+        const valApptToday = Number(appointmentsToday._sum.frozenPrice || 0);
+        const valSalesToday = Number(salesToday._sum.amount || 0);
+        const valWithdToday = Number(withdrawalsToday._sum.amount || 0);
+
+        const valApptMonth = Number(appointmentsMonth._sum.frozenPrice || 0);
+        const valSalesMonth = Number(salesMonth._sum.amount || 0);
+        const valWithdMonth = Number(withdrawalsMonth._sum.amount || 0);
+
+        // FORMULA: (Citas + Ventas) - Retiros
+        const netIncomeToday = (valApptToday + valSalesToday) - valWithdToday;
+        const netIncomeMonth = (valApptMonth + valSalesMonth) - valWithdMonth;
+
+        // =======================================================
+        // 4. CONTEO DE CITAS
+        // =======================================================
         const countToday = await prisma.appointment.groupBy({
             by: ['status'],
-            where: {
-                barberId,
-                date: { gte: startOfToday, lte: endOfToday }
-            },
+            where: { barberId, date: { gte: startOfToday, lte: endOfToday } },
             _count: { id: true }
         });
 
-        // Formatear respuesta
         const stats = {
             meta: {
-                queryTimeZone: userTimeZone, // Le confirmamos al front qué zona usamos
+                queryTimeZone: userTimeZone,
                 date: now.format('YYYY-MM-DD')
             },
-            todayIncome: incomeToday._sum.frozenPrice || 0,
-            monthIncome: incomeMonth._sum.frozenPrice || 0,
+            // Balance Neto (Lo que realmente tienes en la bolsa)
+            todayIncome: netIncomeToday, 
+            monthIncome: netIncomeMonth,
+            
+            // Desglose de Retiros (Para mostrarlo en rojo en el frontend)
+            expenses: {
+                today: valWithdToday,
+                month: valWithdMonth
+            },
+
             appointments: {
                 pending: 0,
                 completed: 0,

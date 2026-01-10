@@ -163,31 +163,49 @@ const updateStatusSchema = z.object({
     })
 });
 
-// Actualizar estado (Cancelar, Completar, etc)
+// Actualizar estado (Cancelar, Completar, etc)// ... imports
+
+
 export const updateAppointmentStatus = async (req, res) => {
-    const { id } = req.params; // ID de la cita en la URL
+    const { id } = req.params;
 
     try {
         const { status } = updateStatusSchema.parse(req.body);
         const barberId = req.user.id;
 
-        // Verificar que la cita exista y pertenezca al barbero
-        // (Usamos updateMany como truco de seguridad: solo actualiza si coincide ID y Barbero)
-        const result = await prisma.appointment.updateMany({
-            where: {
-                id: id,
-                barberId: barberId 
-            },
-            data: {
-                status: status
-            }
+        // Primero BUSCAMOS la cita para ver su fecha
+        const appointment = await prisma.appointment.findUnique({
+            where: { id: id }
         });
 
-        if (result.count === 0) {
+        // Validamos que exista y sea del barbero
+        if (!appointment || appointment.barberId !== barberId) {
             return res.status(404).json({ error: "Cita no encontrada o no te pertenece" });
         }
 
-        res.json({ message: `Cita actualizada a ${status}` });
+        // REGLA DE NEGOCIO: No completar citas futuras
+        if (status === 'COMPLETED') {
+            const now = dayjs(); // Hora actual del servidor
+            const apptDate = dayjs(appointment.date);
+
+            // Si la cita es después de ahora mismo, error.
+            if (apptDate.isAfter(now)) {
+                return res.status(400).json({ 
+                    error: "No puedes completar una cita que aún no ha ocurrido. Espera a la fecha y hora agendada." 
+                });
+            }
+        }
+
+        // 3. Si pasa la validación, actualizamos
+        const updatedAppointment = await prisma.appointment.update({
+            where: { id: id },
+            data: { status: status }
+        });
+
+        res.json({ 
+            message: `Cita actualizada a ${status}`, 
+            appointment: updatedAppointment 
+        });
 
     } catch (error) {
         if (error instanceof z.ZodError) {
