@@ -3,6 +3,7 @@ import { z } from 'zod';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { sendReviewRequest } from '../utils/email.js';
+import { createNotification } from './notificationController.js';
 
 dayjs.extend(utc);
 
@@ -96,6 +97,17 @@ export const createAppointment = async (req, res) => {
             }
         });
 
+
+        // NOTIFICAR AL BARBERO
+        // Usamos el nombre del cliente y fecha formateada
+        const fechaFormat = dayjs(newAppointment.date).format('DD/MM HH:mm');
+        await createNotification(
+            data.barberId, 
+            "📅 Nueva Cita Agendada", 
+            `${client.name} ha reservado un ${service.name} para el ${fechaFormat}`
+        );
+
+        
         res.status(201).json(newAppointment);
 
     } catch (error) {
