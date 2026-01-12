@@ -2,24 +2,26 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat.js';
-import utc from 'dayjs/plugin/utc.js'; // 1. Importante: UTC
+import utc from 'dayjs/plugin/utc.js';
+import timezone from 'dayjs/plugin/timezone.js'; // Necesario para la búsqueda de slots
 
-// 2. Activamos los plugins
+// Activamos los plugins
 dayjs.extend(customParseFormat);
 dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const prisma = new PrismaClient();
 
 // Helper: Convierte "15:00" a Date, FORZANDO UTC directo
-// Al usar .utc() le decimos: "Lo que te doy YA ES UTC, no le sumes mi zona horaria"
 const timeToDate = (timeString) => {
     if (!timeString) return null;
     return dayjs.utc(`1970-01-01T${timeString}:00`).toDate();
 };
 
-// Validación de una sola fila de configuración
+// --- VALIDACIONES (ZOD) ---
+
 const scheduleItemSchema = z.object({
-    dayOfWeek: z.number().min(0).max(6), // 0=Domingo...
+    dayOfWeek: z.number().min(0).max(6),
     startTime: z.string().regex(/^\d{2}:\d{2}$/, "Formato debe ser HH:mm"),
     endTime: z.string().regex(/^\d{2}:\d{2}$/, "Formato debe ser HH:mm"),
     breakStart: z.string().regex(/^\d{2}:\d{2}$/, "Formato HH:mm").optional().nullable(),
@@ -27,18 +29,17 @@ const scheduleItemSchema = z.object({
     isWorkDay: z.boolean().default(true)
 });
 
-// Validación del array completo
 const updateScheduleSchema = z.array(scheduleItemSchema);
 
-// 1. Guardar/Actualizar Horarios
+// --- CONTROLADORES ---
+
+// 1. Guardar/Actualizar Horarios (Configuración)
 export const updateSchedule = async (req, res) => {
     try {
         const data = updateScheduleSchema.parse(req.body);
         const barberId = req.user.id;
-
         const results = [];
 
-        // Usamos transacción para asegurar consistencia
         await prisma.$transaction(async (tx) => {
             for (const item of data) {
                 const config = await tx.scheduleConfig.upsert({
@@ -80,7 +81,7 @@ export const updateSchedule = async (req, res) => {
     }
 };
 
-// 2. Obtener mi horario semanal
+// 2. Obtener mi horario semanal (Configuración)
 export const getMySchedule = async (req, res) => {
     try {
         const schedule = await prisma.scheduleConfig.findMany({
@@ -88,9 +89,6 @@ export const getMySchedule = async (req, res) => {
             orderBy: { dayOfWeek: 'asc' }
         });
 
-        // Formatear para devolver "HH:mm" al frontend
-        // Usamos .toISOString() que siempre devuelve UTC, y cortamos los caracteres de la hora.
-        // Así aseguramos que lo que entra es igual a lo que sale.
         const formatted = schedule.map(day => ({
             ...day,
             startTime: day.startTime ? day.startTime.toISOString().slice(11, 16) : null,
@@ -103,5 +101,129 @@ export const getMySchedule = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Error al obtener horario" });
+    }
+};
+
+// 3. CALCULAR SLOTS DISPONIBLES (Para el Cliente)
+export const getAvailableSlots = async (req, res) => {
+    try {
+        const { barberId } = req.params;
+        const { date, serviceId, timeZone } = req.query; // timeZone es vital (ej: America/Merida)
+
+        if (!date || !serviceId || !timeZone) {
+            return res.status(400).json({ error: "Faltan parámetros (date, serviceId, timeZone)" });
+        }
+
+        // A. Obtener duración del servicio
+        const service = await prisma.service.findUnique({ where: { id: serviceId } });
+        if (!service) return res.status(404).json({ error: "Servicio no encontrado" });
+        const duration = service.duration; // en minutos
+
+        // B. Obtener configuración del día (Lunes, Martes...)
+        const dayOfWeek = dayjs.tz(date, timeZone).day();
+        const config = await prisma.scheduleConfig.findUnique({
+            where: { barberId_dayOfWeek: { barberId, dayOfWeek } }
+        });
+
+        if (!config || !config.isWorkDay) {
+            return res.json({ date, slots: [], message: "Día no laborable" });
+        }
+
+        // C. DEFINIR HORAS DE TRABAJO (Aquí está la corrección del 00:00) 🛠️
+        // Convertimos el UTC genérico de la BD a la fecha específica + zona horaria del usuario
+        const timeStrStart = config.startTime.toISOString().split('T')[1].substring(0, 8); // "15:00:00"
+        const timeStrEnd = config.endTime.toISOString().split('T')[1].substring(0, 8);     // "00:00:00"
+
+        let workStart = dayjs.tz(`${date} ${timeStrStart}`, timeZone);
+        let workEnd = dayjs.tz(`${date} ${timeStrEnd}`, timeZone);
+
+        // CORRECCIÓN LÓGICA: Si la hora de cierre empieza con "00:00", es fin del día
+        if (timeStrEnd.startsWith('00:00')) {
+            workEnd = dayjs.tz(date, timeZone).endOf('day'); 
+        }
+
+        // D. Definir Descanso (Break)
+        let breakStart = null;
+        let breakEnd = null;
+        if (config.breakStart && config.breakEnd) {
+            const bStartStr = config.breakStart.toISOString().split('T')[1].substring(0, 8);
+            const bEndStr = config.breakEnd.toISOString().split('T')[1].substring(0, 8);
+            breakStart = dayjs.tz(`${date} ${bStartStr}`, timeZone);
+            breakEnd = dayjs.tz(`${date} ${bEndStr}`, timeZone);
+        }
+
+        // E. Obtener Citas Existentes (Bloqueos)
+        // Buscamos citas que ocurran en el rango de ese día
+        const appointments = await prisma.appointment.findMany({
+            where: {
+                barberId,
+                status: { not: 'CANCELLED' },
+                date: {
+                    gte: dayjs.tz(date, timeZone).startOf('day').toDate(),
+                    lte: dayjs.tz(date, timeZone).endOf('day').toDate()
+                }
+            },
+            include: { service: true }
+        });
+
+        // F. Generar los Huecos (Loop)
+        const slots = [];
+        let currentSlot = workStart;
+
+        // Bucle: Mientras el inicio del servicio + duración sea menor o igual al cierre
+        while (currentSlot.add(duration, 'minute').isSameOrBefore(workEnd)) {
+            const slotEnd = currentSlot.add(duration, 'minute');
+
+            let isAvailable = true;
+
+            // 1. Checar colisión con Descanso
+            if (breakStart && breakEnd) {
+                // Si el slot empieza antes de que termine el descanso Y termina después de que empiece
+                if (currentSlot.isBefore(breakEnd) && slotEnd.isAfter(breakStart)) {
+                    isAvailable = false;
+                }
+            }
+
+            // 2. Checar colisión con Citas
+            if (isAvailable) {
+                for (const appt of appointments) {
+                    const apptStart = dayjs(appt.date).tz(timeZone);
+                    const apptEnd = apptStart.add(appt.service.duration, 'minute');
+
+                    if (currentSlot.isBefore(apptEnd) && slotEnd.isAfter(apptStart)) {
+                        isAvailable = false;
+                        break;
+                    }
+                }
+            }
+
+            // 3. Checar si ya pasó la hora (no dar turnos en el pasado si es hoy)
+            if (isAvailable) {
+                const now = dayjs().tz(timeZone);
+                // Le damos 15 min de margen (buffer) para no reservar "ya mismo"
+                if (currentSlot.isBefore(now.add(15, 'minute'))) {
+                    isAvailable = false;
+                }
+            }
+
+            if (isAvailable) {
+                slots.push(currentSlot.format('HH:mm'));
+            }
+
+            // Avanzar al siguiente bloque (ej: cada 30 min o según duración)
+            // Para barberías suele ser mejor avanzar según la duración del servicio o intervalos fijos (ej: 30 min)
+            // Aquí avanzamos cada 30 minutos para dar flexibilidad
+            currentSlot = currentSlot.add(30, 'minute'); 
+        }
+
+        res.json({
+            date,
+            slots,
+            message: slots.length > 0 ? "Horarios disponibles" : "No hay horarios disponibles"
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Error al calcular slots" });
     }
 };

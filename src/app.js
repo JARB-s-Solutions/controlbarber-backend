@@ -12,6 +12,7 @@ import barberRoutes from './routes/barberRoutes.js';
 import galleryRoutes from './routes/galleryRoutes.js';
 import clientRoutes from './routes/clientRoutes.js';
 import transactionRoutes from './routes/transactionRoutes.js';
+import reviewRoutes from './routes/reviewRoutes.js';
 
 // Inicializar la app
 
@@ -43,6 +44,7 @@ app.use('/api/barbers', barberRoutes);
 app.use('/api/gallery', galleryRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/finance', transactionRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 // RUTA DE PRUEBA
 app.get("/", (req, res) => {
