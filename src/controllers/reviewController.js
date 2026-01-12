@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
+import { createNotification } from './notificationController.js';
 
 const prisma = new PrismaClient();
 
@@ -69,6 +70,15 @@ export const createReview = async (req, res) => {
             where: { id: appointment.barberId },
             data: { rankingScore: newScore }
         });
+
+
+        // NOTIFICAR AL BARBERO 🔔
+        await createNotification(
+            appointment.barberId,
+            "Nueva Reseña Recibida",
+            `Has recibido ${rating} estrellas. ${comment ? '"' + comment + '"' : ''}`
+        );
+
 
         res.status(201).json({ message: "¡Gracias por tu opinión!", review });
 
