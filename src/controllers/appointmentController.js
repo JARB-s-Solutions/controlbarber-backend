@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
+import { sendReviewRequest } from '../utils/email.js';
 
 dayjs.extend(utc);
 
@@ -165,7 +166,6 @@ const updateStatusSchema = z.object({
 
 // Actualizar estado (Cancelar, Completar, etc)// ... imports
 
-
 export const updateAppointmentStatus = async (req, res) => {
     const { id } = req.params;
 
@@ -173,9 +173,14 @@ export const updateAppointmentStatus = async (req, res) => {
         const { status } = updateStatusSchema.parse(req.body);
         const barberId = req.user.id;
 
-        // Primero BUSCAMOS la cita para ver su fecha
+        // Buscar cita y datos relacionados (Cliente, Servicio, Barbero)
         const appointment = await prisma.appointment.findUnique({
-            where: { id: id }
+            where: { id: id },
+            include: {
+                client: true,  // Necesitamos el email del cliente
+                service: true, // Para decir "Tu corte X"
+                barber: true   // Para decir "Con el barbero Y"
+            }
         });
 
         // Validamos que exista y sea del barbero
@@ -196,11 +201,23 @@ export const updateAppointmentStatus = async (req, res) => {
             }
         }
 
-        // 3. Si pasa la validación, actualizamos
+        // 2. Actualizar estado
         const updatedAppointment = await prisma.appointment.update({
             where: { id: id },
             data: { status: status }
         });
+
+        // 3. LOGICA DE NOTIFICACIÓN (Nuevo) 📧
+        if (status === 'COMPLETED' && appointment.client.email) {
+            // Enviamos el correo en segundo plano (sin await para no hacer esperar al barbero)
+            sendReviewRequest(
+                appointment.client.email,
+                appointment.client.name,
+                appointment.barber.fullName,
+                appointment.id,
+                appointment.service.name
+            );
+        }
 
         res.json({ 
             message: `Cita actualizada a ${status}`, 
