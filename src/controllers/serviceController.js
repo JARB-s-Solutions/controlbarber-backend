@@ -15,8 +15,16 @@ const serviceSchema = z.object({
 // Crear un servicio
 export const createService = async (req, res) => {
     try {
+
+        console.log("Request body:", req.body);
+        console.log("User ID:", req.user.id);
+
         const data = serviceSchema.parse(req.body);
         const barberId = req.user.id; // Viene del token
+
+        console.log("Datos validados:", data);
+        console.log("Barber ID:", barberId);
+
 
         const newService = await prisma.service.create({
             data: {
@@ -28,6 +36,10 @@ export const createService = async (req, res) => {
         res.status(201).json(newService);
 
     } catch (error) {
+
+        console.error("Error creating service:", error);
+        console.error("Stack trace:", error.stack);
+
         if (error instanceof z.ZodError) {
             return res.status(400).json({ error: error.errors });
         }

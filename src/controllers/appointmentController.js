@@ -12,7 +12,6 @@ const prisma = new PrismaClient();
 const createAppointmentSchema = z.object({
     barberId: z.string().uuid(),
     serviceId: z.number(),
-    // Esperamos formato ISO UTC
     date: z.string().datetime(), 
     clientName: z.string().min(1, "Nombre requerido"),
     clientPhone: z.string().min(1, "Teléfono requerido"),
@@ -68,14 +67,22 @@ export const createAppointment = async (req, res) => {
         
 
         let client = await prisma.client.findUnique({
-            where: { phone: data.clientPhone }
+            where: { 
+                client_phone_per_barber: {
+                    phone: data.clientPhone,
+                    barberId: data.barberId // Buscar solo en MIS clientes
+                }
+             }
         });
 
+        // Si no existe en MI lista, lo creo vinculado a MÍ
         if (!client) {
             client = await prisma.client.create({
                 data: {
+                    barberId: data.barberId, // Asignar propiedad
                     name: data.clientName,
                     phone: data.clientPhone,
+                    email: data.clientEmail || null
                 }
             });
         }
@@ -103,7 +110,7 @@ export const createAppointment = async (req, res) => {
         const fechaFormat = dayjs(newAppointment.date).format('DD/MM HH:mm');
         await createNotification(
             data.barberId, 
-            "📅 Nueva Cita Agendada", 
+            "Nueva Cita Agendada", 
             `${client.name} ha reservado un ${service.name} para el ${fechaFormat}`
         );
 
