@@ -6,7 +6,7 @@ import { createNotification } from './notificationController.js';
 const prisma = new PrismaClient();
 
 const reviewSchema = z.object({
-    token: z.string(), // El token que venía en el link
+    token: z.string(),
     rating: z.number().min(1).max(5),
     comment: z.string().optional()
 });
@@ -15,7 +15,7 @@ export const createReview = async (req, res) => {
     try {
         const { token, rating, comment } = reviewSchema.parse(req.body);
 
-        // 1. Validar y Decodificar Token
+        // 1. Validar Token
         let decoded;
         try {
             decoded = jwt.verify(token, process.env.JWT_SECRET);
@@ -25,7 +25,7 @@ export const createReview = async (req, res) => {
 
         const { appointmentId } = decoded;
 
-        // 2. Verificar que la cita exista y esté completada
+        // Verificar estado de la cita
         const appointment = await prisma.appointment.findUnique({
             where: { id: appointmentId }
         });
@@ -34,7 +34,7 @@ export const createReview = async (req, res) => {
             return res.status(400).json({ error: "La cita no es válida para calificar" });
         }
 
-        // 3. Verificar si ya existe reseña (Evitar duplicados)
+        // Evitar duplicados
         const existingReview = await prisma.review.findUnique({
             where: { appointmentId }
         });
@@ -43,7 +43,8 @@ export const createReview = async (req, res) => {
             return res.status(409).json({ error: "Ya has calificado esta cita anteriormente" });
         }
 
-        // 4. Guardar Reseña
+        // Guardar Reseña (Transacción implícita)
+        // Guardamos la reseña primero para que entre en el cálculo del promedio
         const review = await prisma.review.create({
             data: {
                 appointmentId,
@@ -52,35 +53,46 @@ export const createReview = async (req, res) => {
             }
         });
 
-        // 5. ACTUALIZAR PROMEDIO DEL BARBERO (Ranking)
-        // Calculamos el nuevo promedio automáticamente
+
+        // 5. ALGORITMO DE RANKING Y ACTUALIZACIÓN 📊
+
+        
+        // Calcular el promedio actualizado incluyendo la nueva reseña
         const aggregations = await prisma.review.aggregate({
             _avg: { rating: true },
             where: {
                 appointment: {
-                    barberId: appointment.barberId // Filtramos por barbero
+                    barberId: appointment.barberId // Filtramos todas las reviews de este barbero
                 }
             }
         });
 
-        const newScore = aggregations._avg.rating || 0;
+        // Procesar el resultado (Manejo de nulos y redondeo)
+        const rawAvg = aggregations._avg.rating || 0;
+        
+        // Convertimos a 2 decimales fijos (ej: 4.666 -> "4.67" -> 4.67)
+        // Esto evita errores de precisión con el tipo Decimal de la BD
+        const newScore = parseFloat(rawAvg.toFixed(2));
 
-        // Guardamos el nuevo score en el perfil del barbero
+        // Actualizar el perfil del barbero
         await prisma.barber.update({
             where: { id: appointment.barberId },
             data: { rankingScore: newScore }
         });
 
 
-        // NOTIFICAR AL BARBERO 🔔
+        // Notificar al Barbero 🔔
         await createNotification(
             appointment.barberId,
             "Nueva Reseña Recibida",
             `Has recibido ${rating} estrellas. ${comment ? '"' + comment + '"' : ''}`
         );
 
-
-        res.status(201).json({ message: "¡Gracias por tu opinión!", review });
+        res.status(201).json({ 
+            message: "¡Gracias por tu opinión!", 
+            review,
+            newBarberScore: newScore // Opcional: devolver el nuevo score
+        });
 
     } catch (error) {
         if (error instanceof z.ZodError) {
