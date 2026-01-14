@@ -9,24 +9,19 @@ const updateClientSchema = z.object({
     internalNotes: z.string().optional()
 });
 
-// Listar MIS Clientes
+// Listar MIS Clientes (Aislamiento Total)
 export const getMyClients = async (req, res) => {
     try {
         const barberId = req.user.id;
 
-        // Buscamos clientes que tengan AL MENOS una cita con este barbero
+        // NUEVA LÓGICA: Filtramos directamente por la propiedad del barbero
         const clients = await prisma.client.findMany({
-            where: {
-                appointments: {
-                    some: {
-                        barberId: barberId
-                    }
-                }
+            where: { 
+                barberId: barberId 
             },
             include: {
-                // Incluimos solo la última cita para saber cuándo vino
+                // Incluimos la última cita para el historial
                 appointments: {
-                    where: { barberId: barberId },
                     orderBy: { date: 'desc' },
                     take: 1,
                     select: {
@@ -34,15 +29,17 @@ export const getMyClients = async (req, res) => {
                         service: { select: { name: true } }
                     }
                 }
-            }
+            },
+            orderBy: { name: 'asc' }
         });
 
-        // Formateamos para que sea fácil de leer en frontend
+        // Formateamos para el frontend
         const formattedClients = clients.map(client => ({
             id: client.id,
             name: client.name,
             phone: client.phone,
             notes: client.internalNotes,
+            email: client.email, // Agregamos email por si acaso
             lastVisit: client.appointments[0]?.date || null,
             lastService: client.appointments[0]?.service?.name || null
         }));
@@ -55,13 +52,23 @@ export const getMyClients = async (req, res) => {
     }
 };
 
-// Editar Cliente (Notas y Nombre)
+// Editar Cliente (Validando propiedad)
 export const updateClient = async (req, res) => {
     try {
         const { id } = req.params;
+        const barberId = req.user.id;
         const data = updateClientSchema.parse(req.body);
 
-        // Actualizamos
+        // 1. SEGURIDAD: Verificar que el cliente sea de este barbero
+        const existingClient = await prisma.client.findUnique({
+            where: { id }
+        });
+
+        if (!existingClient || existingClient.barberId !== barberId) {
+            return res.status(404).json({ error: "Cliente no encontrado o no tienes permiso" });
+        }
+
+        // 2. Actualizamos
         const updatedClient = await prisma.client.update({
             where: { id },
             data: {
