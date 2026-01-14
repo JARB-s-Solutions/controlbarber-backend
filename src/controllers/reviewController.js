@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
 import { createNotification } from './notificationController.js';
+import { sendNewReviewNotificationToBarber } from '../utils/email.js';
 
 const prisma = new PrismaClient();
 
@@ -27,7 +28,11 @@ export const createReview = async (req, res) => {
 
         // Verificar estado de la cita
         const appointment = await prisma.appointment.findUnique({
-            where: { id: appointmentId }
+            where: { id: appointmentId },
+            include: {
+                barber: true, // <--- Traer al barbero para obtener su email
+                client: true  // <--- Traer al cliente para saber quién escribió
+            }
         });
 
         if (!appointment || appointment.status !== 'COMPLETED') {
@@ -87,6 +92,19 @@ export const createReview = async (req, res) => {
             "Nueva Reseña Recibida",
             `Has recibido ${rating} estrellas. ${comment ? '"' + comment + '"' : ''}`
         );
+
+
+        // B. Notificación por Email al Barbero
+        if (appointment.barber.email) {
+            sendNewReviewNotificationToBarber(
+                appointment.barber.email,
+                appointment.barber.fullName,
+                appointment.client.name, // Nombre del cliente que opinó
+                rating,
+                comment
+            );
+        }
+
 
         res.status(201).json({ 
             message: "¡Gracias por tu opinión!", 

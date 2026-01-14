@@ -1,54 +1,211 @@
 import nodemailer from 'nodemailer';
 import jwt from 'jsonwebtoken';
+import dayjs from 'dayjs';
 
-// 1. Configuración del transporter de nodemailer
+// Configuración del Transporte (Gmail o SMTP)
 const transporter = nodemailer.createTransport({
-    service: 'gmail', // <--- Simplemente 'gmail'
+    service: 'gmail', 
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS 
     }
 });
 
-// 2. Función para enviar la solicitud de reseña
-export const sendReviewRequest = async (clientEmail, clientName, barberName, appointmentId, serviceName) => {
-    try {
-        if (!clientEmail) return; // Si no tiene email, no hacemos nada
 
-        // Generamos un TOKEN seguro para que SOLO él pueda calificar esa cita específica
-        // El token expira en 7 días
-        const reviewToken = jwt.sign(
-            { appointmentId }, 
-            process.env.JWT_SECRET, 
-            { expiresIn: '7d' }
+// --- TEMPLATE BASE (Para que todos los correos se vean igual) ---
+const getHtmlTemplate = (title, bodyContent) => {
+    return `
+        <div style="font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #f4f4f4; padding: 40px 0;">
+            <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <div style="background-color: #1a1a1a; padding: 20px; text-align: center;">
+                    <h1 style="color: #ffffff; margin: 0; font-size: 24px;">💈 ControlBarber</h1>
+                </div>
+                <div style="padding: 30px;">
+                    <h2 style="color: #333333; margin-top: 0;">${title}</h2>
+                    ${bodyContent}
+                </div>
+                <div style="background-color: #eeeeee; padding: 15px; text-align: center; font-size: 12px; color: #777777;">
+                    <p>Gestionado por ControlBarber App</p>
+                </div>
+            </div>
+        </div>
+    `;
+};
+
+
+// --- DISPARADOR 1: CONFIRMACIÓN DE CITA ---
+export const sendAppointmentConfirmation = async (clientEmail, clientName, barberName, serviceName, date) => {
+    if (!clientEmail) return;
+
+    try {
+        const formattedDate = dayjs(date).format('DD/MM/YYYY');
+        const formattedTime = dayjs(date).format('HH:mm');
+
+        const html = getHtmlTemplate(
+            `¡Tu cita está confirmada! ✅`,
+            `
+            <p>Hola <strong>${clientName}</strong>,</p>
+            <p>Tu reserva ha sido agendada con éxito. Aquí tienes los detalles:</p>
+            <div style="background-color: #f9f9f9; padding: 15px; border-left: 4px solid #4CAF50; margin: 20px 0;">
+                <p style="margin: 5px 0;"><strong>Barbero:</strong> ${barberName}</p>
+                <p style="margin: 5px 0;"><strong>Servicio:</strong> ${serviceName}</p>
+                <p style="margin: 5px 0;"><strong>Fecha:</strong> ${formattedDate}</p>
+                <p style="margin: 5px 0;"><strong>Hora:</strong> ${formattedTime}</p>
+            </div>
+            <p>Te esperamos. ¡No llegues tarde!</p>
+            `
         );
 
-        // Link al Frontend (cuando lo tengas)
-        // Ejemplo: controlbarber.app/review?token=...
-        const reviewLink = `${process.env.FRONTEND_URL}?token=${reviewToken}`;
+        await transporter.sendMail({
+            from: '"ControlBarber" <no-reply@controlbarber.app>',
+            to: clientEmail,
+            subject: '✅ Confirmación de Cita - ControlBarber',
+            html: html
+        });
+        console.log(`📧 Confirmación enviada a ${clientEmail}`);
+    } catch (error) {
+        console.error("Error enviando confirmación:", error);
+    }
+};
 
-        const mailOptions = {
-            from: '"ControlBarber App" <no-reply@controlbarber.app>',
+
+// --- DISPARADOR 2: CANCELACIÓN DE CITA ---
+export const sendAppointmentCancellation = async (clientEmail, clientName, barberName, date) => {
+    if (!clientEmail) return;
+
+    try {
+        const formattedDate = dayjs(date).format('DD/MM/YYYY HH:mm');
+
+        const html = getHtmlTemplate(
+            `Cita Cancelada ❌`,
+            `
+            <p>Hola <strong>${clientName}</strong>,</p>
+            <p>Lamentamos informarte que tu cita programada con <strong>${barberName}</strong> para el <strong>${formattedDate}</strong> ha sido cancelada.</p>
+            <p>Por favor, contacta al barbero o entra a la app para reagendar.</p>
+            `
+        );
+
+        await transporter.sendMail({
+            from: '"ControlBarber" <no-reply@controlbarber.app>',
+            to: clientEmail,
+            subject: '❌ Actualización de Cita - Cancelada',
+            html: html
+        });
+        console.log(`📧 Cancelación enviada a ${clientEmail}`);
+    } catch (error) {
+        console.error("Error enviando cancelación:", error);
+    }
+};
+
+
+
+// --- DISPARADOR 3: SOLICITUD DE RESEÑA (Función para enviar la solicitud de reseña) ---
+export const sendReviewRequest = async (clientEmail, clientName, barberName, appointmentId, serviceName) => {
+    if (!clientEmail) return;
+
+    try {
+        const reviewToken = jwt.sign({ appointmentId }, process.env.JWT_SECRET, { expiresIn: '7d' });
+        // OJO: Ajusta esto cuando tengas dominio real. Ahora apunta a tu HTML temporal o Localhost
+        const reviewLink = `${process.env.FRONTEND_URL}?token=${reviewToken}`; 
+
+        const html = getHtmlTemplate(
+            `¿Qué tal tu corte? ⭐`,
+            `
+            <p>Hola <strong>${clientName}</strong>,</p>
+            <p>Gracias por visitarnos hoy. Esperamos que te haya gustado tu <strong>${serviceName}</strong> con <strong>${barberName}</strong>.</p>
+            <p>Nos ayudaría mucho si nos dejas una breve calificación:</p>
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="${reviewLink}" style="background-color: #000; color: #fff; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">⭐⭐⭐⭐⭐ Calificar Servicio</a>
+            </div>
+            <small style="display: block; text-align: center;">Si el botón no funciona: <a href="${reviewLink}">${reviewLink}</a></small>
+            `
+        );
+
+        await transporter.sendMail({
+            from: '"ControlBarber" <no-reply@controlbarber.app>',
             to: clientEmail,
             subject: `💈 ¿Qué tal tu corte con ${barberName}?`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h2>¡Hola ${clientName}!</h2>
-                    <p>Gracias por visitarnos hoy.</p>
-                    <p>Esperamos que te haya gustado tu <strong>${serviceName}</strong> con <strong>${barberName}</strong>.</p>
-                    <br>
-                    <p>Nos ayudaría mucho si nos dejas una breve reseña (toma 10 segundos):</p>
-                    <a href="${reviewLink}" style="background-color: #000; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">⭐⭐⭐⭐⭐ Calificar Servicio</a>
-                    <br><br>
-                    <small>Si el botón no funciona, copia este link: ${reviewLink}</small>
-                </div>
-            `
-        };
-
-        await transporter.sendMail(mailOptions);
-        console.log(`📧 Correo de reseña enviado a ${clientEmail}`);
+            html: html
+        });
+        
+        console.log(`📧 Solicitud de reseña enviada a ${clientEmail}`);
+        console.log("🔗 LINK GENERADO:", reviewLink); 
 
     } catch (error) {
-        console.error("Error enviando email:", error);
+        console.error("Error enviando solicitud reseña:", error);
+    }
+};
+
+
+// --- DISPARADOR 4: AVISO DE NUEVA CITA (PARA EL BARBERO)
+export const sendNewAppointmentNotificationToBarber = async (barberEmail, barberName, clientName, serviceName, date) => {
+    if (!barberEmail) return;
+
+    try {
+        const formattedDate = dayjs(date).format('DD/MM/YYYY HH:mm');
+
+        const html = getHtmlTemplate(
+            `📅 Nueva Cita Agendada`,
+            `
+            <p>Hola <strong>${barberName}</strong>,</p>
+            <p>¡Buenas noticias! Tienes una nueva reserva confirmada.</p>
+            <div style="background-color: #e3f2fd; padding: 15px; border-left: 4px solid #2196F3; margin: 20px 0;">
+                <p style="margin: 5px 0;"><strong>Cliente:</strong> ${clientName}</p>
+                <p style="margin: 5px 0;"><strong>Servicio:</strong> ${serviceName}</p>
+                <p style="margin: 5px 0;"><strong>Fecha y Hora:</strong> ${formattedDate}</p>
+            </div>
+            <p>Ingresa a tu dashboard para ver más detalles.</p>
+            `
+        );
+
+        await transporter.sendMail({
+            from: '"ControlBarber System" <no-reply@controlbarber.app>',
+            to: barberEmail,
+            subject: `📅 Nueva Cita: ${clientName} - ${formattedDate}`,
+            html: html
+        });
+        console.log(`📧 Notificación de cita enviada al barbero (${barberEmail})`);
+
+    } catch (error) {
+        console.error("Error enviando email al barbero:", error);
+    }
+};
+
+
+
+// --- DISPARADOR 5: AVISO DE NUEVA RESEÑA (PARA EL BARBERO)
+export const sendNewReviewNotificationToBarber = async (barberEmail, barberName, clientName, rating, comment) => {
+    if (!barberEmail) return;
+
+    try {
+        const stars = '⭐'.repeat(rating); // Ej: ⭐⭐⭐⭐⭐
+
+        const html = getHtmlTemplate(
+            `¡Nueva Reseña Recibida!`,
+            `
+            <p>Hola <strong>${barberName}</strong>,</p>
+            <p>El cliente <strong>${clientName}</strong> acaba de calificar su visita.</p>
+            <div style="text-align: center; font-size: 24px; margin: 20px 0;">
+                ${stars}
+            </div>
+            ${comment ? `
+            <div style="background-color: #fff3e0; padding: 15px; border-radius: 5px; font-style: italic; color: #555;">
+                "${comment}"
+            </div>` : ''}
+            <br>
+            <p>¡Sigue así!</p>
+            `
+        );
+
+        await transporter.sendMail({
+            from: '"ControlBarber System" <no-reply@controlbarber.app>',
+            to: barberEmail,
+            subject: `⭐ Nueva Reseña de ${rating} Estrellas`,
+            html: html
+        });
+        console.log(`📧 Notificación de reseña enviada al barbero (${barberEmail})`);
+
+    } catch (error) {
+        console.error("Error enviando email de reseña al barbero:", error);
     }
 };

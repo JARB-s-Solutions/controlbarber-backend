@@ -2,7 +2,12 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import { sendReviewRequest } from '../utils/email.js';
+import { 
+    sendReviewRequest, 
+    sendAppointmentConfirmation,
+    sendAppointmentCancellation,
+    sendNewAppointmentNotificationToBarber
+}  from '../utils/email.js';
 import { createNotification } from './notificationController.js';
 
 dayjs.extend(utc);
@@ -114,6 +119,40 @@ export const createAppointment = async (req, res) => {
             `${client.name} ha reservado un ${service.name} para el ${fechaFormat}`
         );
 
+        // EMAIL AL CLIENTE
+        if (client.email) {
+            // Buscamos el nombre del barbero para que salga bonito en el correo
+            const barberInfo = await prisma.barber.findUnique({
+                where: { id: data.barberId },
+                select: { fullName: true }
+            });
+
+            if (barberInfo) {
+                // Sin await para no trabar la respuesta
+                sendAppointmentConfirmation(
+                    client.email,
+                    client.name,
+                    barberInfo.fullName,
+                    service.name,
+                    newAppointment.date
+                );
+            }
+        }
+
+        const barberData = await prisma.barber.findUnique({
+            where: { id: data.barberId },
+            select: { email: true, fullName: true }
+        });
+
+        if( barberData && barberData.email ) {
+            sendNewAppointmentNotificationToBarber(
+                barberData.email,
+                barberData.fullName,
+                client.name,
+                service.name,
+                newAppointment.date
+            );
+        }
         
         res.status(201).json(newAppointment);
 
@@ -226,7 +265,9 @@ export const updateAppointmentStatus = async (req, res) => {
             data: { status: status }
         });
 
-        // 3. LOGICA DE NOTIFICACIÓN (Nuevo) 📧
+        // DISPARADORES DE EMAIL
+
+        // Cita Completada -> Pedir Reseña
         if (status === 'COMPLETED' && appointment.client.email) {
             // Enviamos el correo en segundo plano (sin await para no hacer esperar al barbero)
             sendReviewRequest(
@@ -237,6 +278,25 @@ export const updateAppointmentStatus = async (req, res) => {
                 appointment.service.name
             );
         }
+
+
+        // Cita Cancelada -> Avisar al cliente
+        if (status === 'CANCELLED' && appointment.client.email) {
+            sendAppointmentCancellation(
+                appointment.client.email,
+                appointment.client.name,
+                appointment.barber.fullName,
+                appointment.date
+            );
+            
+            // También notificamos al barbero internamente si no fue él quien canceló (opcional)
+             await createNotification(
+                barberId, 
+                "❌ Cita Cancelada", 
+                `La cita con ${appointment.client.name} ha sido cancelada.`
+            );
+        }
+
 
         res.json({ 
             message: `Cita actualizada a ${status}`, 
