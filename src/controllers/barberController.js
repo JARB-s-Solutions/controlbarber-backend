@@ -114,7 +114,7 @@ export const getBarberProfile = async (req, res) => {
                 slug: barber.slug,
                 avatar: barber.avatarUrl,
                 phone: barber.phone,
-                rating: barber.rankingScore, // El promedio ya calculado (ej: 4.8)
+                rating: barber.rankingScore,
                 reviewCount: reviewCount,
                 plan: barber.subscription.type
             },
@@ -127,5 +127,51 @@ export const getBarberProfile = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Error interno al obtener perfil" });
+    }
+};
+
+
+export const getTopBarbers = async (req, res) => {
+    try {
+        const { limit = 10, skip = 0 } = req.query;
+
+        const barbers = await prisma.barber.findMany({
+            where: {
+                isActive: true,
+                subscription: { status: 'ACTIVE' }
+            },
+            orderBy: {
+                rankingScore: 'desc'
+            },
+            take: parseInt(limit),
+            skip: parseInt(skip),
+            select: {
+                id: true,
+                fullName: true,
+                slug: true,
+                avatarUrl: true,
+                rankingScore: true,
+                
+                _count: {
+                    select: { reviews: true } 
+                }
+            }
+        });
+        
+        const formattedBarbers = barbers.map(barber => ({
+            id: barber.id,
+            name: barber.fullName,
+            slug: barber.slug,
+            avatar: barber.avatarUrl,
+            rating: parseFloat(barber.rankingScore),
+            
+            reviewCount: barber._count.reviews 
+        }));
+
+        res.json(formattedBarbers);
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Error al obtener ranking" });
     }
 };
