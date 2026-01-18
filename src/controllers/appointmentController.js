@@ -46,6 +46,26 @@ export const createAppointment = async (req, res) => {
         const newApptStart = dayjs.utc(data.date);
         const newApptEnd = newApptStart.add(service.durationMin, 'minute');
 
+
+        // VERIFICAR BLOQUEOS (Vacaciones, Cierres)
+        const conflictBlock = await prisma.scheduleBlock.findFirst({
+            where: {
+                barberId: data.barberId,
+                // Lógica de colisión: El bloqueo empieza antes de que termine la cita
+                // Y el bloqueo termina después de que empiece la cita.
+                startDate: { lt: newApptEnd.toDate() },
+                endDate: { gt: newApptStart.toDate() }
+            }
+        });
+
+        if (conflictBlock) {
+            return res.status(409).json({ 
+                error: `No disponible: El barbero ha bloqueado este horario (${conflictBlock.reason}).` 
+            });
+        }
+
+
+
         // VALIDACIÓN DE DISPONIBILIDAD
         const startOfDay = newApptStart.startOf('day').toDate();
         const endOfDay = newApptStart.endOf('day').toDate();
