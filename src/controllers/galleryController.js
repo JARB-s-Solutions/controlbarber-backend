@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import cloudinary from '../config/cloudinary.js';
 import streamifier from 'streamifier';
+import { checkPlanLimits } from "../utils/permissions.js"
 
 const prisma = new PrismaClient();
 
@@ -34,20 +35,15 @@ export const uploadImage = async (req, res) => {
             return res.status(400).json({ error: "No se ha seleccionado ninguna imagen" });
         }
 
-        // Validar límite según suscripción
-        const [subscription, photoCount] = await Promise.all([
-            prisma.subscription.findUnique({ where: { barberId } }),
-            prisma.galleryImage.count({ where: { barberId } })
-        ]);
+        // CHEQUEO DE PLAN
+        const { limits } = await checkPlanLimits(barberId);
+        const currentCount = await prisma.galleryImage.count({
+            where: { barberId }
+        });
 
-        const planType = subscription?.type || 'FREE';
-        let limit = 6;
-        if (planType === 'BASIC') limit = 20;
-        if (planType === 'PREMIUM') limit = 1000;
-
-        if (photoCount >= limit) {
-            return res.status(403).json({ 
-                error: `Has alcanzado el límite de fotos (${limit}) de tu plan ${planType}.` 
+        if( currentCount >= limits.maxPhotos ) {
+            return res.status(403).json({
+                error: `Has alcanzado el límite de imágenes para tu plan actual (${limits.maxPhotos} imágenes). Por favor, actualiza tu plan a Premium para subir más imágenes.`
             });
         }
 
@@ -114,8 +110,6 @@ export const deleteImage = async (req, res) => {
         }
 
         // Eliminar de Cloudinary
-        // URL Ejemplo: https://res.cloudinary.com/tucloud/image/upload/v1234/controlbarber_gallery/foto123.jpg
-        // Necesitamos: "controlbarber_gallery/foto123"
         try {
             const urlParts = image.imageUrl.split('/');
             const filename = urlParts.pop().split('.')[0]; // foto123 (sin .jpg)
