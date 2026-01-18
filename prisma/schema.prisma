@@ -87,6 +87,7 @@ model Barber {
   notifications Notification[]
 
   clients       Client[]
+  reviews       Review[]
 
   @@map("barberos")
 }
@@ -252,6 +253,8 @@ model DailyClose {
 model Review {
   id            Int       @id @default(autoincrement())
   appointmentId String    @unique @map("cita_id") // 1 a 1 estricto
+
+  barberId      String        @map("barbero_id") // FK
   
   rating        Int       @map("puntuacion") // 1-5
   comment       String?   @map("comentario")
@@ -259,6 +262,8 @@ model Review {
   createdAt     DateTime  @default(now()) @map("fecha")
 
   appointment   Appointment @relation(fields: [appointmentId], references: [id])
+
+  barber        Barber      @relation(fields: [barberId], references: [id], onDelete: Cascade)
 
   @@map("calificaciones")
 }

@@ -16,10 +16,21 @@ import reviewRoutes from './routes/reviewRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
+import { apiLimiter, strictLimiter } from "./middlewares/rateLimiter.js";
 
 // Inicializar la app
 
 const app = express();
+
+// APLICAR LÍMITE GLOBAL
+app.use("/api", apiLimiter);
+
+app.set('trust proxy', 1);
+
+// APLICAR LÍMITE ESTRICTO A RUTAS DE AUTH Y REVIEWS
+app.use('/api/auth/login', strictLimiter);
+app.use('/api/reviews', strictLimiter);
+
 
 app.use('/api/webhooks', webhookRoutes);
 
@@ -30,7 +41,7 @@ app.use(helmet());
 
 // Logger de peticiones
 app.use(morgan("dev"));
-
+ 
 // Parseo del cuerpo de las peticiones (JSON y Forms)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
