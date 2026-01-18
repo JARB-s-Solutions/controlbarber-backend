@@ -3,8 +3,11 @@ import { z } from "zod";
 import { hashPassword } from "../utils/password.js";
 import { comparePassword } from "../utils/password.js";
 import { generateToken } from "../utils/jwt.js";
+import jwt from 'jsonwebtoken';
+import { OAuth2Client } from 'google-auth-library';
 
 const prisma = new PrismaClient();
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Esquema de validación para Registro
 const registerSchema = z.object({
@@ -126,6 +129,12 @@ export const login = async (req, res) => {
       where: { email: data.email }
     });
 
+    if(!user.passwordHash) {
+        return res.status(400).json({
+            error: "Este correo está registrado con Google. Por favor usa el botón de 'Iniciar con Google'."
+        })
+    }
+
     if (!user) {
       return res.status(401).json({ error: "Credenciales inválidas" });
     }
@@ -186,5 +195,92 @@ export const getProfile = async (req, res) => {
         res.json(user);
     } catch (error) {
         res.status(500).json({ error: "Error al obtener el perfil del usuario" });
+    }
+};
+
+// Función auxiliar para generar token JWT
+const signToken = (id) => {
+    return jwt.sign({ id }, process.env.JWT_SECRET, {
+        expiresIn: process.env.JWT_EXPIRES_IN
+    });
+};
+
+export const googleLogin = async (req, res) => {
+    try {
+        const { googleToken } = req.body;
+
+        // Verificar el token con Google (Seguridad crítica)
+        const ticket = await googleClient.verifyIdToken({
+            idToken: googleToken,
+            audience: process.env.GOOGLE_CLIENT_ID, 
+        });
+        
+        const { name, email, picture, sub: googleId } = ticket.getPayload();
+
+        // Buscar si el barbero ya existe en nuestra BD
+        let barber = await prisma.barber.findUnique({
+            where: { email }
+        });
+
+        if (barber) {
+            // CASO A: El usuario YA existe
+            // Si no tenía googleId vinculado, lo actualizamos para la próxima
+            if (!barber.googleId) {
+                barber = await prisma.barber.update({
+                    where: { email },
+                    data: { 
+                        googleId: googleId,
+                        avatarUrl: barber.avatarUrl || picture // Si no tiene foto, usamos la de Google
+                    }
+                });
+            }
+        } else {
+            // CASO B: Es un usuario NUEVO (Registro automático)
+            // Generamos un "slug" básico basado en el nombre
+            const baseSlug = name.toLowerCase().replace(/\s+/g, '-');
+            const uniqueSlug = `${baseSlug}-${Math.floor(Math.random() * 1000)}`;
+
+            barber = await prisma.barber.create({
+                data: {
+                    email,
+                    fullName: name,
+                    googleId: googleId,
+                    avatarUrl: picture,
+                    slug: uniqueSlug,
+                    passwordHash: null, // No tiene contraseña
+                    // Creamos su suscripción FREE por defecto
+                    subscription: {
+                        create: {
+                            type: 'FREE',
+                            status: 'ACTIVE',
+                            startDate: new Date(),
+                            endDate: new Date(new Date().setFullYear(new Date().getFullYear() + 100))
+                        }
+                    }
+                }
+            });
+        }
+
+        // 3. Generar NUESTRO token JWT (El sistema sigue funcionando igual)
+        const token = signToken(barber.id);
+
+        // 4. Responder
+        res.json({
+            status: 'success',
+            token,
+            data: {
+                barber: {
+                    id: barber.id,
+                    name: barber.fullName,
+                    email: barber.email,
+                    avatar: barber.avatarUrl,
+                    role: 'barber'
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("Error en Google Auth:", error);
+        res.status(401).json({ error: "Token de Google inválido o expirado" });
     }
 };

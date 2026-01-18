@@ -60,8 +60,9 @@ model Barber {
   id            String    @id @default(uuid())
   fullName      String    @map("nombre_completo")
   email         String    @unique
-  passwordHash  String    @map("password_hash")
-  phone         String    @map("telefono")
+  passwordHash  String?    @map("password_hash")
+  googleId  String?  @unique @map("google_id")
+  phone         String?    @map("telefono")
   avatarUrl     String?   @map("foto_perfil")
   rankingScore  Decimal   @default(0.00) @db.Decimal(3, 2) @map("ranking_score")
   role          Role      @default(BARBER)
@@ -127,7 +128,7 @@ model Subscription {
   status      SubscriptionStatus @default(PENDING) @map("estado_pago")
 
 
-  barber      Barber    @relation(fields: [barberId], references: [id], onDelete: Cascade)
+  barber      Barber    @relation(fields:  [barberId], references: [id], onDelete: Cascade)
 
   @@map("suscripciones")
 }
