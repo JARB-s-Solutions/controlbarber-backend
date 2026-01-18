@@ -5,9 +5,106 @@ import { comparePassword } from "../utils/password.js";
 import { generateToken } from "../utils/jwt.js";
 import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
+import { randomBytes, createHash } from 'node:crypto'; 
+import bcrypt from 'bcryptjs';
+import { sendPasswordResetEmail } from "../utils/email.js"
 
 const prisma = new PrismaClient();
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+
+
+// SOLICITAR RECUPERACIÓN (Forgot Password)
+export const forgotPassword = async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        // Buscar usuario
+        const barber = await prisma.barber.findUnique({ where: { email } });
+        if (!barber) {
+            return res.status(200).json({ message: "Si el correo existe, recibirás un enlace de recuperación." });
+        }
+
+        // Generar token aleatorio
+        const resetToken = randomBytes(32).toString('hex');
+
+        // Ahora debe ser: createHash(...)
+        const hashedToken = createHash('sha256') 
+            .update(resetToken)
+            .digest('hex');
+        // -----------------------
+
+        // Guardar en BD con expiración (10 minutos)
+        await prisma.barber.update({
+            where: { email },
+            data: {
+                passwordResetToken: hashedToken,
+                passwordResetExpires: new Date(Date.now() + 10 * 60 * 1000) // 10 min
+            }
+        });
+
+        // Enviar Email
+        await sendPasswordResetEmail(email, barber.fullName, resetToken);
+
+        res.status(200).json({ message: "Correo enviado" });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Error en el servidor" });
+    }
+};
+
+
+// RESTABLECER CONTRASEÑA (Reset Password)
+export const resetPassword = async (req, res) => {
+    try {
+        const { token } = req.params; // Viene de la URL
+        const { password } = req.body; // Nueva contraseña
+
+        if (!password || password.length < 6) {
+            return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
+        }
+
+        // Hashear el token que recibimos para compararlo con el de la BD
+        const hashedToken = createHash('sha256')
+            .update(token)
+            .digest('hex');
+
+        // Buscar usuario con ese token Y que no haya expirado
+        const barber = await prisma.barber.findFirst({
+            where: {
+                passwordResetToken: hashedToken,
+                passwordResetExpires: { gt: new Date() } // gt = Greater Than (Mayor que ahora)
+            }
+        });
+
+        if (!barber) {
+            return res.status(400).json({ error: "El enlace es inválido o ha expirado" });
+        }
+
+        // Encriptar la nueva contraseña
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(password, salt);
+
+        // Actualizar usuario y limpiar los tokens
+        await prisma.barber.update({
+            where: { id: barber.id },
+            data: {
+                passwordHash: passwordHash, // Si antes era null (Google), ahora ya tiene password
+                passwordResetToken: null,
+                passwordResetExpires: null
+            }
+        });
+        
+        res.status(200).json({ message: "Contraseña actualizada correctamente. Ahora puedes iniciar sesión." });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Error al restablecer contraseña" });
+    }
+};
+
+
 
 // Esquema de validación para Registro
 const registerSchema = z.object({

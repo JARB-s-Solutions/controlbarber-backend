@@ -209,3 +209,43 @@ export const sendNewReviewNotificationToBarber = async (barberEmail, barberName,
         console.error("Error enviando email de reseña al barbero:", error);
     }
 };
+
+
+// --- DISPARADOR 6: RECUPERACIÓN DE CONTRASEÑA 🔒 ---
+export const sendPasswordResetEmail = async (email, name, resetToken) => {
+    if (!email) return;
+
+    try {
+        // En producción, esto debe apuntar a tu Frontend real (React/Next/Vue)
+        // Ejemplo: https://micontrolbarber.com/reset-password?token=...
+        const resetUrl = `${process.env.FRONTEND_URL}/auth/reset-password?token=${resetToken}`;
+
+        const html = getHtmlTemplate(
+            `Restablecer Contraseña 🔑`,
+            `
+            <p>Hola <strong>${name}</strong>,</p>
+            <p>Hemos recibido una solicitud para restablecer tu contraseña en ControlBarber.</p>
+            <p>Haz clic en el siguiente botón para crear una nueva contraseña. Este enlace expira en 10 minutos.</p>
+            
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="${resetUrl}" style="background-color: #E63946; color: #fff; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">Restablecer Contraseña</a>
+            </div>
+
+            <p style="font-size: 12px; color: #666;">Si tú no pediste este cambio, ignora este correo y tu contraseña seguirá siendo la misma.</p>
+            <p style="font-size: 12px; color: #888;">O copia este enlace: <br> <a href="${resetUrl}">${resetUrl}</a></p>
+            `
+        );
+
+        await transporter.sendMail({
+            from: '"Seguridad ControlBarber" <no-reply@controlbarber.app>',
+            to: email,
+            subject: '🔑 Restablecer tu contraseña',
+            html: html
+        });
+        
+        console.log(`📧 Email de recuperación enviado a ${email}`);
+
+    } catch (error) {
+        console.error("Error enviando email de recuperación:", error);
+    }
+};

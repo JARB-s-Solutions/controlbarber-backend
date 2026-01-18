@@ -68,6 +68,9 @@ model Barber {
   role          Role      @default(BARBER)
   slug          String?   @unique @map("alias_url") //Alias para la URL
   isActive      Boolean   @default(true) @map("estado_cuenta")
+
+  passwordResetToken   String?   @map("password_reset_token")
+  passwordResetExpires DateTime? @map("password_reset_expires")
   
   createdAt     DateTime  @default(now()) @map("fecha_registro")
   updatedAt     DateTime  @updatedAt
