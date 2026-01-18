@@ -1,7 +1,6 @@
-// --- SERVICIOS ---
-
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
+import { checkPlanLimits } from "../utils/permissions.js"
 
 const prisma = new PrismaClient();
 
@@ -25,6 +24,21 @@ export const createService = async (req, res) => {
         console.log("Datos validados:", data);
         console.log("Barber ID:", barberId);
 
+        // CHEQUEO DE PLAN
+        const { limits } = await checkPlanLimits(barberId);
+
+        const currentCount = await prisma.service.count({ 
+            where: { 
+                barberId, 
+                isActive: true
+            } 
+        });
+
+        if (currentCount >= limits.maxServices) {
+            return res.status(403).json({ 
+                error: `Plan Gratuito limitado a ${limits.maxServices} servicios. Pásate a Premium para ilimitados.` 
+            });
+        }
 
         const newService = await prisma.service.create({
             data: {

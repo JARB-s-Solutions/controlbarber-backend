@@ -14,7 +14,6 @@ datasource db {
 
 enum PlanType {
   FREE
-  BASIC
   PREMIUM
 }
 
@@ -120,19 +119,13 @@ model Client {
 model Subscription {
   id          Int       @id @default(autoincrement())
   barberId    String    @unique @map("barbero_id") // 1 a 1 actual
+   // --- STRIPE ---
+  stripeCustomerId String? @unique @map("stripe_customer_id")
   type        PlanType  @map("tipo_plan")
   startDate   DateTime  @map("fecha_inicio")
   endDate     DateTime  @map("fecha_vencimiento")
   status      SubscriptionStatus @default(PENDING) @map("estado_pago")
 
-
-  // --- CLIP ---
-  clipPaymentId        String?   @unique @map("clip_payment_id")     // ID del pago en Clip
-  clipCheckoutId       String?   @map("clip_checkout_id")            // ID del checkout creado
-  clipPaymentMethod    String?   @map("clip_payment_method")         // card, transfer, etc
-  lastPaymentDate      DateTime? @map("last_payment_date")           // Fecha del último pago exitoso
-  nextPaymentDate      DateTime? @map("next_payment_date")           // Fecha del próximo cobro
-  autoRenew            Boolean   @default(true) @map("auto_renew")   // Renovación automática
 
   barber      Barber    @relation(fields: [barberId], references: [id], onDelete: Cascade)
 

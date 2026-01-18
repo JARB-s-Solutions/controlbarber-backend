@@ -14,10 +14,14 @@ import clientRoutes from './routes/clientRoutes.js';
 import transactionRoutes from './routes/transactionRoutes.js';
 import reviewRoutes from './routes/reviewRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import paymentRoutes from './routes/paymentRoutes.js';
+import webhookRoutes from './routes/webhookRoutes.js';
 
 // Inicializar la app
 
 const app = express();
+
+app.use('/api/webhooks', webhookRoutes);
 
 // --- Middlewares Globales ---
 
@@ -47,6 +51,7 @@ app.use('/api/clients', clientRoutes);
 app.use('/api/finance', transactionRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // RUTA DE PRUEBA
 app.get("/", (req, res) => {
