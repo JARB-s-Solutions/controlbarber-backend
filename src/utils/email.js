@@ -70,28 +70,35 @@ export const sendAppointmentConfirmation = async (clientEmail, clientName, barbe
 
 
 // --- DISPARADOR 2: CANCELACIÓN DE CITA ---
-export const sendAppointmentCancellation = async (clientEmail, clientName, barberName, date) => {
-    if (!clientEmail) return;
-
+// ...
+export const sendAppointmentCancellation = async (email, clientName, barberName, date, reason = "Imprevistos del barbero") => {
     try {
         const formattedDate = dayjs(date).format('DD/MM/YYYY HH:mm');
-
+        
         const html = getHtmlTemplate(
-            `Cita Cancelada ❌`,
+            'Cita Cancelada ❌',
             `
             <p>Hola <strong>${clientName}</strong>,</p>
-            <p>Lamentamos informarte que tu cita programada con <strong>${barberName}</strong> para el <strong>${formattedDate}</strong> ha sido cancelada.</p>
-            <p>Por favor, contacta al barbero o entra a la app para reagendar.</p>
+            <p>Lamentamos informarte que tu cita con <strong>${barberName}</strong> programada para el <strong>${formattedDate}</strong> ha sido cancelada.</p>
+            
+            <div style="background-color: #fff3cd; border: 1px solid #ffeeba; padding: 15px; border-radius: 5px; margin: 20px 0; color: #856404;">
+                <strong>Motivo de la cancelación:</strong><br>
+                ${reason}
+            </div>
+
+            <p>Por favor, visita nuevamente nuestro perfil para reagendar en un horario disponible.</p>
+            <div style="text-align: center; margin-top: 20px;">
+                <a href="${process.env.FRONTEND_URL}" style="background-color: #333; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reagendar Cita</a>
+            </div>
             `
         );
 
         await transporter.sendMail({
             from: '"ControlBarber" <no-reply@controlbarber.app>',
-            to: clientEmail,
-            subject: '❌ Actualización de Cita - Cancelada',
+            to: email,
+            subject: '⚠️ Importante: Tu cita ha sido cancelada',
             html: html
         });
-        console.log(`📧 Cancelación enviada a ${clientEmail}`);
     } catch (error) {
         console.error("Error enviando cancelación:", error);
     }

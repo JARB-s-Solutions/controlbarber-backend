@@ -24,6 +24,14 @@ export const getAvailability = async (req, res) => {
         // Parsear datos
         const { date, serviceId, barberId } = availabilitySchema.parse(req.query);
 
+        const now = dayjs().utc(); // Hora actual en UTC
+        const queryDate = dayjs.utc(date).endOf('day');
+        if (queryDate.isBefore(now)) {
+            return res.json({
+                date, slots: [], message: "No se pueden agendar citas en fechas pasadas." 
+            });
+        }
+
         // Obtener servicio y su duración
         const service = await prisma.service.findUnique({ where: { id: serviceId } });
         if (!service) return res.status(404).json({ error: "Servicio no encontrado" });

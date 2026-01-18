@@ -104,22 +104,22 @@ export const getMySchedule = async (req, res) => {
     }
 };
 
-// 3. CALCULAR SLOTS DISPONIBLES (Para el Cliente)
+// 3. CALCULAR SLOTS DISPONIBLES (Para el Cliente) - CORREGIDO
 export const getAvailableSlots = async (req, res) => {
     try {
         const { barberId } = req.params;
-        const { date, serviceId, timeZone } = req.query; // timeZone es vital (ej: America/Merida)
+        const { date, serviceId, timeZone } = req.query; 
 
         if (!date || !serviceId || !timeZone) {
             return res.status(400).json({ error: "Faltan parámetros (date, serviceId, timeZone)" });
         }
 
         // A. Obtener duración del servicio
-        const service = await prisma.service.findUnique({ where: { id: serviceId } });
+        const service = await prisma.service.findUnique({ where: { id: parseInt(serviceId) } });
         if (!service) return res.status(404).json({ error: "Servicio no encontrado" });
-        const duration = service.duration; // en minutos
+        const duration = service.durationMin || service.duration; // Aseguramos que lea el campo correcto
 
-        // B. Obtener configuración del día (Lunes, Martes...)
+        // B. Obtener configuración del día
         const dayOfWeek = dayjs.tz(date, timeZone).day();
         const config = await prisma.scheduleConfig.findUnique({
             where: { barberId_dayOfWeek: { barberId, dayOfWeek } }
@@ -129,15 +129,13 @@ export const getAvailableSlots = async (req, res) => {
             return res.json({ date, slots: [], message: "Día no laborable" });
         }
 
-        // C. DEFINIR HORAS DE TRABAJO (Aquí está la corrección del 00:00) 🛠️
-        // Convertimos el UTC genérico de la BD a la fecha específica + zona horaria del usuario
-        const timeStrStart = config.startTime.toISOString().split('T')[1].substring(0, 8); // "15:00:00"
-        const timeStrEnd = config.endTime.toISOString().split('T')[1].substring(0, 8);     // "00:00:00"
+        // C. DEFINIR HORAS DE TRABAJO
+        const timeStrStart = config.startTime.toISOString().split('T')[1].substring(0, 8);
+        const timeStrEnd = config.endTime.toISOString().split('T')[1].substring(0, 8);
 
         let workStart = dayjs.tz(`${date} ${timeStrStart}`, timeZone);
         let workEnd = dayjs.tz(`${date} ${timeStrEnd}`, timeZone);
 
-        // CORRECCIÓN LÓGICA: Si la hora de cierre empieza con "00:00", es fin del día
         if (timeStrEnd.startsWith('00:00')) {
             workEnd = dayjs.tz(date, timeZone).endOf('day'); 
         }
@@ -152,8 +150,9 @@ export const getAvailableSlots = async (req, res) => {
             breakEnd = dayjs.tz(`${date} ${bEndStr}`, timeZone);
         }
 
-        // E. Obtener Citas Existentes (Bloqueos)
-        // Buscamos citas que ocurran en el rango de ese día
+        // E. OBTENER TODO LO QUE ESTORBA (Citas Y Bloqueos) 🛡️
+        
+        // 1. Citas
         const appointments = await prisma.appointment.findMany({
             where: {
                 barberId,
@@ -166,19 +165,30 @@ export const getAvailableSlots = async (req, res) => {
             include: { service: true }
         });
 
+        // 2. BLOQUEOS (Aquí estaba lo que faltaba) 🔒
+        // Traemos cualquier bloqueo que toque el día seleccionado
+        const blocks = await prisma.scheduleBlock.findMany({
+            where: {
+                barberId,
+                OR: [
+                    {
+                        startDate: { lte: dayjs.tz(date, timeZone).endOf('day').toDate() },
+                        endDate: { gte: dayjs.tz(date, timeZone).startOf('day').toDate() }
+                    }
+                ]
+            }
+        });
+
         // F. Generar los Huecos (Loop)
         const slots = [];
         let currentSlot = workStart;
 
-        // Bucle: Mientras el inicio del servicio + duración sea menor o igual al cierre
         while (currentSlot.add(duration, 'minute').isSameOrBefore(workEnd)) {
             const slotEnd = currentSlot.add(duration, 'minute');
-
             let isAvailable = true;
 
             // 1. Checar colisión con Descanso
             if (breakStart && breakEnd) {
-                // Si el slot empieza antes de que termine el descanso Y termina después de que empiece
                 if (currentSlot.isBefore(breakEnd) && slotEnd.isAfter(breakStart)) {
                     isAvailable = false;
                 }
@@ -187,8 +197,10 @@ export const getAvailableSlots = async (req, res) => {
             // 2. Checar colisión con Citas
             if (isAvailable) {
                 for (const appt of appointments) {
+                    // Convertimos la fecha de la cita (UTC) a la Zona Horaria del cliente para comparar bien
                     const apptStart = dayjs(appt.date).tz(timeZone);
-                    const apptEnd = apptStart.add(appt.service.duration, 'minute');
+                    const apptDuration = appt.service.durationMin || appt.service.duration;
+                    const apptEnd = apptStart.add(apptDuration, 'minute');
 
                     if (currentSlot.isBefore(apptEnd) && slotEnd.isAfter(apptStart)) {
                         isAvailable = false;
@@ -197,10 +209,22 @@ export const getAvailableSlots = async (req, res) => {
                 }
             }
 
-            // 3. Checar si ya pasó la hora (no dar turnos en el pasado si es hoy)
+            // 3. Checar colisión con BLOQUEOS (Vacaciones/Cierre de día) 🔒
+            if (isAvailable) {
+                for (const block of blocks) {
+                    const blockStart = dayjs(block.startDate).tz(timeZone);
+                    const blockEnd = dayjs(block.endDate).tz(timeZone);
+
+                    if (currentSlot.isBefore(blockEnd) && slotEnd.isAfter(blockStart)) {
+                        isAvailable = false;
+                        break;
+                    }
+                }
+            }
+
+            // 4. Checar si ya pasó la hora (Buffer)
             if (isAvailable) {
                 const now = dayjs().tz(timeZone);
-                // Le damos 15 min de margen (buffer) para no reservar "ya mismo"
                 if (currentSlot.isBefore(now.add(15, 'minute'))) {
                     isAvailable = false;
                 }
@@ -210,9 +234,6 @@ export const getAvailableSlots = async (req, res) => {
                 slots.push(currentSlot.format('HH:mm'));
             }
 
-            // Avanzar al siguiente bloque (ej: cada 30 min o según duración)
-            // Para barberías suele ser mejor avanzar según la duración del servicio o intervalos fijos (ej: 30 min)
-            // Aquí avanzamos cada 30 minutos para dar flexibilidad
             currentSlot = currentSlot.add(30, 'minute'); 
         }
 
@@ -223,7 +244,7 @@ export const getAvailableSlots = async (req, res) => {
         });
 
     } catch (error) {
-        console.error(error);
+        console.error("Error Schedule Controller:", error);
         res.status(500).json({ error: "Error al calcular slots" });
     }
 };
