@@ -17,6 +17,7 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 import { apiLimiter, strictLimiter } from "./middlewares/rateLimiter.js";
+import locationRoutes from './routes/locationRoutes.js';
 
 // Inicializar la app
 
@@ -63,6 +64,7 @@ app.use('/api/finance', transactionRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/location', locationRoutes);
 
 // RUTA DE PRUEBA
 app.get("/", (req, res) => {
