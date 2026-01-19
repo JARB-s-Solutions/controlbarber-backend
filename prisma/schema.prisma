@@ -71,6 +71,10 @@ model Barber {
 
   passwordResetToken   String?   @map("password_reset_token")
   passwordResetExpires DateTime? @map("password_reset_expires")
+
+  latitude   Float?    @map("latitud")
+  longitude  Float?    @map("longitud")
+  address    String?   @map("direccion_texto")
   
   createdAt     DateTime  @default(now()) @map("fecha_registro")
   updatedAt     DateTime  @updatedAt
