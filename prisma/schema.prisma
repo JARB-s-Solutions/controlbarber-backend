@@ -93,6 +93,8 @@ model Barber {
   clients       Client[]
   reviews       Review[]
 
+  dailyOpens    DailyOpen[]
+
   @@map("barberos")
 }
 
@@ -207,7 +209,7 @@ model Appointment {
   client        Client    @relation(fields: [clientId], references: [id])
   service       Service   @relation(fields: [serviceId], references: [id])
   
-  transaction   Transaction? // Relación 1-1 opcional (se crea al pagar)
+  transaction   Transaction[]
   review        Review?      // Relación 1-1 opcional (se crea al calificar)
 
   @@index([barberId, date]) // Búsqueda rápida de agenda
@@ -218,11 +220,13 @@ model Appointment {
 model Transaction {
   id            Int       @id @default(autoincrement())
   barberId      String    @map("barbero_id")
-  appointmentId String?   @unique @map("cita_id") // Opcional (puede ser venta libre)
+  appointmentId String?   @map("cita_id") // Opcional (puede ser venta libre)
   
   type          TransactionType @map("tipo")
   amount        Decimal   @db.Decimal(10, 2) @map("monto")
   method        PaymentMethod @map("metodo_pago")
+
+  description   String?       @map("descripcion")
   createdAt     DateTime  @default(now()) @map("fecha_creacion")
   
   dailyCloseId  Int?      @map("cierre_dia_id") // Vincula al cierre cuando este ocurre
@@ -233,6 +237,22 @@ model Transaction {
   dailyClose    DailyClose?  @relation(fields: [dailyCloseId], references: [id])
 
   @@map("movimientos_financieros")
+}
+
+
+/// Apertura de caja diaria (Registro de base inicial)
+model DailyOpen {
+  id          Int       @id @default(autoincrement())
+  barberId    String    @map("barbero_id")
+  date        DateTime  @map("fecha") @db.Date // Solo la fecha
+  
+  initialCash Decimal   @db.Decimal(10, 2) @map("efectivo_inicial") // La "Base"
+  openedAt    DateTime  @default(now()) @map("hora_apertura")
+
+  barber      Barber    @relation(fields: [barberId], references: [id], onDelete: Cascade)
+
+  @@unique([barberId, date]) // Solo una apertura por día
+  @@map("aperturas_caja")
 }
 
 /// Cierre de caja diario (Inmutable)
