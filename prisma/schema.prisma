@@ -201,6 +201,7 @@ model Appointment {
   status        AppointmentStatus @default(PENDING) @map("estado")
   origin        String    @default("APP") // APP o POS
   notes         String?   @map("notas")
+  reminderSent Boolean @default(false) @map("recordatorio_enviado")
 
   createdAt     DateTime  @default(now())
 

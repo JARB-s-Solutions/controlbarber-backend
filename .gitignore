@@ -140,3 +140,6 @@ vite.config.ts.timestamp-*
 
 #Prisma
 # /Prisma
+
+# MD
+PROMPTS_UI_DESIGN.md
