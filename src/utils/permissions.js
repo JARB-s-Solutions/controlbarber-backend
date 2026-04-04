@@ -2,24 +2,23 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-export const checkPlanLimits = async (barberId) => {
-    // 1. Obtenemos la suscripción
+export const checkPlanLimits = async (barbershopId) => {
+    // 1. Obtenemos la suscripción DE LA SUCURSAL
     const sub = await prisma.subscription.findUnique({
-        where: { barberId }
+        where: { barbershopId }
     });
 
-    // Si no tiene suscripción o está vencida, asumimos FREE
-    // Aquí asumiremos que el defecto es FREE si no existe o está activa.
     const plan = (sub && sub.status === 'ACTIVE') ? sub.type : 'FREE';
 
     return {
         plan,
-        isPremium: plan === 'PREMIUM',
+        isPremium: plan === 'PREMIUM' || plan === 'ENTERPRISE',
         limits: {
-            maxServices: plan === 'PREMIUM' ? Infinity : 5,
-            maxPhotos: plan === 'PREMIUM' ? Infinity : 5,
-            canReceiveBookings: plan === 'PREMIUM', // Solo premium recibe reservas online
-            hasEmailNotifications: plan === 'PREMIUM' // Solo premium envía correos
+            maxStaff: plan === 'PREMIUM' ? 5 : (plan === 'ENTERPRISE' ? Infinity : 1), // Limite de empleados
+            maxServices: plan === 'FREE' ? 5 : Infinity,
+            maxPhotos: plan === 'FREE' ? 5 : Infinity,
+            canReceiveBookings: plan !== 'FREE', 
+            hasEmailNotifications: plan !== 'FREE' 
         }
     };
 };

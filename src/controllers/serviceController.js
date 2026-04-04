@@ -1,74 +1,51 @@
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
-import { checkPlanLimits } from "../utils/permissions.js"
+import { checkPlanLimits } from "../utils/permissions.js";
 
 const prisma = new PrismaClient();
 
-// Esquema de validación
 const serviceSchema = z.object({
     name: z.string().min(1, "El nombre es obligatorio"),
     price: z.number().min(0, "El precio no puede ser negativo"),
     durationMin: z.number().int().min(5, "La duración mínima es de 5 minutos")
 });
 
-// Crear un servicio
 export const createService = async (req, res) => {
     try {
-
-        console.log("Request body:", req.body);
-        console.log("User ID:", req.user.id);
-
         const data = serviceSchema.parse(req.body);
-        const barberId = req.user.id; // Viene del token
+        const barbershopId = req.user.barbershopId; 
 
-        console.log("Datos validados:", data);
-        console.log("Barber ID:", barberId);
-
-        // CHEQUEO DE PLAN
-        const { limits } = await checkPlanLimits(barberId);
+        // CHEQUEO DE PLAN (Basado en la sucursal)
+        const { limits } = await checkPlanLimits(barbershopId);
 
         const currentCount = await prisma.service.count({ 
-            where: { 
-                barberId, 
-                isActive: true
-            } 
+            where: { barbershopId, isActive: true } 
         });
 
         if (currentCount >= limits.maxServices) {
             return res.status(403).json({ 
-                error: `Plan Gratuito limitado a ${limits.maxServices} servicios. Pásate a Premium para ilimitados.` 
+                error: `Plan limitado a ${limits.maxServices} servicios. Sube a Premium para ilimitados.` 
             });
         }
 
         const newService = await prisma.service.create({
-            data: {
-                ...data,
-                barberId: barberId
-            }
+            data: { ...data, barbershopId }
         });
 
         res.status(201).json(newService);
 
     } catch (error) {
-
+        if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
         console.error("Error creating service:", error);
-        console.error("Stack trace:", error.stack);
-
-        if (error instanceof z.ZodError) {
-            return res.status(400).json({ error: error.errors });
-        }
         res.status(500).json({ error: "Error al crear el servicio" });
     }
 };
 
-// Obtener mis servicios (Solo los activos)
 export const getMyServices = async (req, res) => {
     try {
+        // Todos los empleados pueden ver los servicios de su sucursal
         const services = await prisma.service.findMany({
-            where: {
-                barberId: req.user.id,
-                isActive: true // Solo traemos los visibles
-            }
+            where: { barbershopId: req.user.barbershopId, isActive: true }
         });
         res.json(services);
     } catch (error) {
@@ -76,26 +53,18 @@ export const getMyServices = async (req, res) => {
     }
 };
 
-// Actualizar servicio
 export const updateService = async (req, res) => {
-    const { id } = req.params; // ID del servicio a editar
-    
     try {
-        const data = serviceSchema.partial().parse(req.body); // .partial() hace que los campos sean opcionales
+        const { id } = req.params;
+        const data = serviceSchema.partial().parse(req.body);
 
-        // Solo actualiza SI el ID coincide Y el barberId es el dueño.
+        // Seguridad: Exige coincidencia de ID y BarbershopId
         const result = await prisma.service.updateMany({
-            where: {
-                id: parseInt(id),
-                barberId: req.user.id 
-            },
-            data: data
+            where: { id: parseInt(id), barbershopId: req.user.barbershopId },
+            data
         });
 
-        if (result.count === 0) {
-            return res.status(404).json({ error: "Servicio no encontrado o no te pertenece" });
-        }
-
+        if (result.count === 0) return res.status(404).json({ error: "Servicio no encontrado o acceso denegado" });
         res.json({ message: "Servicio actualizado correctamente" });
 
     } catch (error) {
@@ -103,26 +72,16 @@ export const updateService = async (req, res) => {
     }
 };
 
-// Eliminar servicio (Soft Delete)
 export const deleteService = async (req, res) => {
-    const { id } = req.params;
-
     try {
-        // Marcamos isActive = false en lugar de borrar
+        const { id } = req.params;
+
         const result = await prisma.service.updateMany({
-            where: {
-                id: parseInt(id),
-                barberId: req.user.id
-            },
-            data: {
-                isActive: false
-            }
+            where: { id: parseInt(id), barbershopId: req.user.barbershopId },
+            data: { isActive: false }
         });
 
-        if (result.count === 0) {
-            return res.status(404).json({ error: "Servicio no encontrado o no te pertenece" });
-        }
-
+        if (result.count === 0) return res.status(404).json({ error: "Servicio no encontrado o acceso denegado" });
         res.json({ message: "Servicio eliminado correctamente" });
 
     } catch (error) {

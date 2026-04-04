@@ -2,17 +2,11 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import { 
-    sendReviewRequest, 
-    sendAppointmentConfirmation,
-    sendAppointmentCancellation,
-    sendNewAppointmentNotificationToBarber
-}  from '../utils/email.js';
-import { createNotification } from './notificationController.js';
+import { sendReviewRequest, sendAppointmentConfirmation, sendAppointmentCancellation, sendNewAppointmentNotificationToBarber } from '../utils/email.js';
+import { createNotification } from './notificationController.js'; // Ajusta si la cambiaste
 import { checkPlanLimits } from '../utils/permissions.js';
 
 dayjs.extend(utc);
-
 const prisma = new PrismaClient();
 
 const createAppointmentSchema = z.object({
@@ -28,52 +22,41 @@ export const createAppointment = async (req, res) => {
     try {
         const data = createAppointmentSchema.parse(req.body);
 
-        // 1. CHEQUEO DE PLAN DEL BARBERO 🔒
-        const { limits } = await checkPlanLimits(data.barberId);
+        // 1. OBTENER CONTEXTO DE SUCURSAL DESDE EL BARBERO 🕵️
+        const barber = await prisma.barber.findUnique({ where: { id: data.barberId } });
+        if (!barber) return res.status(404).json({ error: "Barbero no encontrado" });
+        
+        const barbershopId = barber.barbershopId; // Extraemos la sucursal
 
-        // REGLA 1: Si es FREE, no dejamos ni crear la cita (Bloqueo Total)
+        // 2. CHEQUEO DE PLAN DE LA SUCURSAL 
+        const { limits } = await checkPlanLimits(barbershopId);
         if (!limits.canReceiveBookings) {
-            return res.status(403).json({
-                error: "Este barbero utiliza la versión gratuita y no acepta reservas online. Por favor contáctalo directamente."
-            });
+            return res.status(403).json({ error: "Esta sucursal no acepta reservas online en este momento." });
         }
 
-        // Obtener servicio
-        const service = await prisma.service.findUnique({ where: { id: data.serviceId } });
-        if (!service) return res.status(404).json({ error: "Servicio no encontrado" });
+        // 3. CONSULTAS EN PARALELO 
+        const [service, conflictBlock] = await Promise.all([
+            prisma.service.findFirst({ where: { id: data.serviceId, barbershopId } }), // Valida que el servicio sea de la tienda
+            prisma.scheduleBlock.findFirst({
+                where: {
+                    barberId: data.barberId,
+                    startDate: { lt: dayjs.utc(data.date).add(30, 'minute').toDate() }, // Asumiendo cruce inicial
+                    endDate: { gt: dayjs.utc(data.date).toDate() }
+                }
+            })
+        ]);
 
-        // Definir Inicio y Fin
+        if (!service) return res.status(404).json({ error: "Servicio inválido" });
+        if (conflictBlock) return res.status(409).json({ error: "El barbero no está disponible en este horario." });
+
         const newApptStart = dayjs.utc(data.date);
         const newApptEnd = newApptStart.add(service.durationMin, 'minute');
 
-
-        // VERIFICAR BLOQUEOS (Vacaciones, Cierres)
-        const conflictBlock = await prisma.scheduleBlock.findFirst({
-            where: {
-                barberId: data.barberId,
-                // Lógica de colisión: El bloqueo empieza antes de que termine la cita
-                // Y el bloqueo termina después de que empiece la cita.
-                startDate: { lt: newApptEnd.toDate() },
-                endDate: { gt: newApptStart.toDate() }
-            }
-        });
-
-        if (conflictBlock) {
-            return res.status(409).json({ 
-                error: `No disponible: El barbero ha bloqueado este horario (${conflictBlock.reason}).` 
-            });
-        }
-
-
-
-        // VALIDACIÓN DE DISPONIBILIDAD
-        const startOfDay = newApptStart.startOf('day').toDate();
-        const endOfDay = newApptStart.endOf('day').toDate();
-
+        // 4. VALIDAR DISPONIBILIDAD (Colisiones)
         const dailyAppointments = await prisma.appointment.findMany({
             where: {
                 barberId: data.barberId,
-                date: { gte: startOfDay, lte: endOfDay },
+                date: { gte: newApptStart.startOf('day').toDate(), lte: newApptStart.endOf('day').toDate() },
                 status: { not: 'CANCELLED' }
             },
             include: { service: true }
@@ -82,39 +65,29 @@ export const createAppointment = async (req, res) => {
         for (const appt of dailyAppointments) {
             const existingStart = dayjs.utc(appt.date);
             const existingEnd = existingStart.add(appt.service.durationMin, 'minute');
-
             if (newApptStart.isBefore(existingEnd) && newApptEnd.isAfter(existingStart)) {
-                return res.status(409).json({ error: "El horario seleccionado ya está ocupado." });
+                return res.status(409).json({ error: "Horario ocupado." });
             }
         }
 
-        // GESTIÓN DEL CLIENTE
+        // 5. GESTIÓN DEL CLIENTE (A nivel Sucursal) 🧑‍🤝‍🧑
         let client = await prisma.client.findUnique({
-            where: { 
-                client_phone_per_barber: {
-                    phone: data.clientPhone,
-                    barberId: data.barberId
-                }
-             }
+            where: { client_phone_per_shop: { phone: data.clientPhone, barbershopId } }
         });
 
         if (!client) {
             client = await prisma.client.create({
-                data: {
-                    barberId: data.barberId,
-                    name: data.clientName,
-                    phone: data.clientPhone,
-                    email: data.clientEmail || null
-                }
+                data: { barbershopId, name: data.clientName, phone: data.clientPhone, email: data.clientEmail || null }
             });
         }
 
-        // CREAR LA CITA
+        // 6. CREAR LA CITA
         const newAppointment = await prisma.appointment.create({
             data: {
-                barber: { connect: { id: data.barberId } },
-                service: { connect: { id: data.serviceId } },
-                client: { connect: { id: client.id } },
+                barbershopId, // Vinculada a la tienda
+                barberId: data.barberId, // Atendida por este empleado
+                serviceId: data.serviceId,
+                clientId: client.id,
                 date: newApptStart.toDate(),
                 status: 'CONFIRMED',
                 frozenPrice: service.price,
@@ -122,68 +95,33 @@ export const createAppointment = async (req, res) => {
             }
         });
 
-        // NOTIFICACIÓN INTERNA (Siempre se envía, es parte del sistema base)
-        const fechaFormat = dayjs(newAppointment.date).format('DD/MM HH:mm');
-        await createNotification(
-            data.barberId, 
-            "📅 Nueva Cita Agendada", 
-            `${client.name} ha reservado un ${service.name} para el ${fechaFormat}`
-        );
-
-        // REGLA 2: Solo enviamos correos si el plan lo permite (PREMIUM) 📧🔒
+        // 7. NOTIFICACIONES
         if (limits.hasEmailNotifications) {
-            
-            // A. Obtener datos del barbero
-            const barberData = await prisma.barber.findUnique({
-                where: { id: data.barberId },
-                select: { email: true, fullName: true }
-            });
-
-            // B. Email al Cliente
-            if (client.email && barberData) {
-                sendAppointmentConfirmation(
-                    client.email,
-                    client.name,
-                    barberData.fullName,
-                    service.name,
-                    newAppointment.date
-                );
-            }
-
-            // C. Email al Barbero
-            if (barberData && barberData.email) {
-                sendNewAppointmentNotificationToBarber(
-                    barberData.email,
-                    barberData.fullName,
-                    client.name,
-                    service.name,
-                    newAppointment.date
-                );
-            }
+            if (client.email) sendAppointmentConfirmation(client.email, client.name, barber.fullName, service.name, newAppointment.date);
+            if (barber.email) sendNewAppointmentNotificationToBarber(barber.email, barber.fullName, client.name, service.name, newAppointment.date);
         }
         
         res.status(201).json(newAppointment);
 
     } catch (error) {
-        if (error instanceof z.ZodError) {
-            return res.status(400).json({ error: error.errors });
-        }
-        console.error("Error creating appointment:", error);
+        if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+        console.error(error);
         res.status(500).json({ error: "Error al crear la cita" });
     }
 };
 
-// Validación para el filtro de fecha
-const getAppointmentsSchema = z.object({
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato YYYY-MM-DD").optional(),
-});
-
 export const getMyAppointments = async (req, res) => {
     try {
-        const { date } = getAppointmentsSchema.parse(req.query);
-        const barberId = req.user.id; 
+        const { date } = req.query;
+        const { id: userId, role, barbershopId } = req.user; 
 
-        const whereClause = { barberId: barberId };
+        // LÓGICA DE ROLES: Un dueño ve todo, un empleado ve lo suyo
+        const whereClause = { barbershopId };
+        
+        // Si no es dueño ni gerente, filtramos solo sus citas
+        if (role === 'BARBER') {
+            whereClause.barberId = userId;
+        }
 
         if (date) {
             const startOfDay = dayjs.utc(date).startOf('day').toDate();
@@ -193,101 +131,65 @@ export const getMyAppointments = async (req, res) => {
 
         const appointments = await prisma.appointment.findMany({
             where: whereClause,
-            include: { client: true, service: true },
+            include: { client: true, service: true, barber: { select: { fullName: true } } },
             orderBy: { date: 'asc' }
         });
 
         res.json(appointments);
     } catch (error) {
-        if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
-        console.error(error);
         res.status(500).json({ error: "Error al obtener citas" });
     }
 };
 
-// Esquema para validar que el estado sea válido
 const updateStatusSchema = z.object({
-    status: z.enum(['PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'], {
-        errorMap: () => ({ message: "Estado no válido" })
-    })
+    status: z.enum(['PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'])
 });
 
 export const updateAppointmentStatus = async (req, res) => {
-    const { id } = req.params;
-
     try {
+        const { id } = req.params;
         const { status } = updateStatusSchema.parse(req.body);
-        const barberId = req.user.id;
+        const { id: userId, role, barbershopId } = req.user;
 
-        // 1. CHEQUEO DE PLAN (Para saber si enviamos correos) 🔒
-        const { limits } = await checkPlanLimits(barberId);
+        const { limits } = await checkPlanLimits(barbershopId);
 
         const appointment = await prisma.appointment.findUnique({
-            where: { id: id },
-            include: {
-                client: true,
-                service: true,
-                barber: true
-            }
+            where: { id },
+            include: { client: true, service: true, barber: true }
         });
 
-        if (!appointment || appointment.barberId !== barberId) {
-            return res.status(404).json({ error: "Cita no encontrada o no te pertenece" });
+        // Seguridad: ¿La cita pertenece a mi sucursal?
+        if (!appointment || appointment.barbershopId !== barbershopId) {
+            return res.status(404).json({ error: "Cita no encontrada o acceso denegado" });
         }
 
-        if (status === 'COMPLETED') {
-            const now = dayjs(); 
-            const apptDate = dayjs(appointment.date);
-            if (apptDate.isAfter(now)) {
-                return res.status(400).json({ error: "No puedes completar una cita futura." });
-            }
+        // Seguridad: Un BARBER solo puede modificar SUS citas (El dueño puede modificar todas)
+        if (role === 'BARBER' && appointment.barberId !== userId) {
+            return res.status(403).json({ error: "No puedes modificar las citas de otros empleados" });
+        }
+
+        if (status === 'COMPLETED' && dayjs(appointment.date).isAfter(dayjs())) {
+            return res.status(400).json({ error: "No puedes completar una cita futura." });
         }
 
         const updatedAppointment = await prisma.appointment.update({
-            where: { id: id },
-            data: { status: status }
+            where: { id },
+            data: { status }
         });
 
-        // REGLA 2: Solo enviamos correos si es PREMIUM 📧🔒
         if (limits.hasEmailNotifications) {
-
-            // Cita Completada -> Pedir Reseña
             if (status === 'COMPLETED' && appointment.client.email) {
-                sendReviewRequest(
-                    appointment.client.email,
-                    appointment.client.name,
-                    appointment.barber.fullName,
-                    appointment.id,
-                    appointment.service.name
-                );
+                sendReviewRequest(appointment.client.email, appointment.client.name, appointment.barber.fullName, appointment.id, appointment.service.name);
             }
-
-            // Cita Cancelada -> Avisar al cliente
             if (status === 'CANCELLED' && appointment.client.email) {
-                sendAppointmentCancellation(
-                    appointment.client.email,
-                    appointment.client.name,
-                    appointment.barber.fullName,
-                    appointment.date
-                );
-                
-                // Notificación interna (siempre va, no cuesta)
-                 await createNotification(
-                    barberId, 
-                    "❌ Cita Cancelada", 
-                    `La cita con ${appointment.client.name} ha sido cancelada.`
-                );
+                sendAppointmentCancellation(appointment.client.email, appointment.client.name, appointment.barber.fullName, appointment.date);
             }
         }
 
-        res.json({ 
-            message: `Cita actualizada a ${status}`, 
-            appointment: updatedAppointment 
-        });
+        res.json({ message: `Cita actualizada a ${status}`, appointment: updatedAppointment });
 
     } catch (error) {
         if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
-        console.error(error);
         res.status(500).json({ error: "Error al actualizar cita" });
     }
 };
