@@ -305,35 +305,36 @@ const signToken = (id) => {
 export const googleLogin = async (req, res) => {
     try {
         const { googleToken } = req.body;
+        console.log("1. Intentando verificar token de Google...");
 
-        // Verificar el token con Google (Seguridad crítica)
+        // Verificar el token con Google
         const ticket = await googleClient.verifyIdToken({
             idToken: googleToken,
             audience: process.env.GOOGLE_CLIENT_ID, 
         });
         
         const { name, email, picture, sub: googleId } = ticket.getPayload();
+        console.log("2. Token verificado. Usuario:", email);
 
-        // Buscar si el barbero ya existe en nuestra BD
+        // Buscar si el barbero ya existe
         let barber = await prisma.barber.findUnique({
             where: { email }
         });
 
         if (barber) {
-            // CASO A: El usuario YA existe
-            // Si no tenía googleId vinculado, lo actualizamos para la próxima
+            console.log("3. El usuario ya existe en BD.");
+            // Si no tenía googleId vinculado, lo actualizamos
             if (!barber.googleId) {
                 barber = await prisma.barber.update({
                     where: { email },
                     data: { 
                         googleId: googleId,
-                        avatarUrl: barber.avatarUrl || picture // Si no tiene foto, usamos la de Google
+                        avatarUrl: barber.avatarUrl || picture
                     }
                 });
             }
         } else {
-            // CASO B: Es un usuario NUEVO (Registro automático)
-            // Generamos un "slug" básico basado en el nombre
+            console.log("3. Usuario nuevo. Creando registro en BD...");
             const baseSlug = name.toLowerCase().replace(/\s+/g, '-');
             const uniqueSlug = `${baseSlug}-${Math.floor(Math.random() * 1000)}`;
 
@@ -344,8 +345,8 @@ export const googleLogin = async (req, res) => {
                     googleId: googleId,
                     avatarUrl: picture,
                     slug: uniqueSlug,
-                    passwordHash: null, // No tiene contraseña
-                    // Creamos su suscripción FREE por defecto
+                    passwordHash: null,
+                    phone: "0000000000", // Teléfono genérico para evitar error de Prisma
                     subscription: {
                         create: {
                             type: 'FREE',
@@ -356,12 +357,12 @@ export const googleLogin = async (req, res) => {
                     }
                 }
             });
+            console.log("4. Usuario creado exitosamente.");
         }
 
-        // 3. Generar NUESTRO token JWT (El sistema sigue funcionando igual)
+        // Generar JWT del sistema
         const token = signToken(barber.id);
 
-        // 4. Responder
         res.json({
             status: 'success',
             token,
@@ -377,7 +378,11 @@ export const googleLogin = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Error en Google Auth:", error);
-        res.status(401).json({ error: "Token de Google inválido o expirado" });
+        console.error(" ERROR REAL EN GOOGLE AUTH:", error);
+        
+        res.status(500).json({ 
+            error: "Fallo en el proceso de autenticación", 
+            detalle: error.message || "Error desconocido"
+        });
     }
 };
