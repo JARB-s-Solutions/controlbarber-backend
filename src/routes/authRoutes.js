@@ -17,6 +17,7 @@ const router = Router();
 router.post('/register', register);
 router.post('/login', login);
 router.post('/google', googleLogin);
+router.post('/logout', logout);
 
 // Recuperación de Contraseña
 router.post('/forgot-password', forgotPassword);
@@ -25,6 +26,5 @@ router.post('/reset-password/:token', resetPassword);
 // Rutas Privadas (Autenticadas)
 router.use(protect);
 router.get('/profile', getProfile);
-router.post('/logout', logout);
 
 export default router;
