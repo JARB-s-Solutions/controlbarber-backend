@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import helmet  from "helmet";
 import morgan from "morgan";
+import cookieParser from "cookie-parser";
+
 import authRoutes from "./routes/authRoutes.js";
 import serviceRoutes from "./routes/serviceRoutes.js";
 import scheduleRoutes from './routes/scheduleRoutes.js';
@@ -21,7 +23,6 @@ import locationRoutes from './routes/locationRoutes.js';
 import { startReminderCron } from './cron/reminderJob.js';
 
 // Inicializar la app
-
 const app = express();
 
 // APLICAR LÍMITE GLOBAL
@@ -32,7 +33,6 @@ app.set('trust proxy', 1);
 // APLICAR LÍMITE ESTRICTO A RUTAS DE AUTH Y REVIEWS
 app.use('/api/auth/login', strictLimiter);
 app.use('/api/reviews', strictLimiter);
-
 
 app.use('/api/webhooks', webhookRoutes);
 
@@ -48,8 +48,27 @@ app.use(morgan("dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS
-app.use(cors());
+// Habilitamos la lectura de cookies
+app.use(cookieParser());
+
+// Configuración estricta de CORS para permitir Cookies (credentials)
+const allowedOrigins = [
+    'https://cb-front-indol.vercel.app', 
+    'http://localhost:5173', // Para el dev local de tu frontend
+    'http://localhost:5500', 
+    'http://127.0.0.1:5500'
+];
+
+app.use(cors({
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('No permitido por CORS'));
+        }
+    },
+    credentials: true 
+}));
 
 // Rutas de la API
 app.use("/api/auth", authRoutes);

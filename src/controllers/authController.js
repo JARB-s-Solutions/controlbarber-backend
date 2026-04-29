@@ -12,7 +12,13 @@ import { sendPasswordResetEmail } from "../utils/email.js"
 const prisma = new PrismaClient();
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-
+// Opciones centrales para inyectar la Cookie de forma segura
+const getCookieOptions = () => ({
+    httpOnly: true, // Invisible para JavaScript (Evita ataques XSS)
+    secure: process.env.NODE_ENV === 'production', // Solo HTTPS en producción (Vercel)
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // Cross-domain
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 días (Igual que el vencimiento de tu JWT)
+});
 
 // SOLICITAR RECUPERACIÓN (Forgot Password)
 export const forgotPassword = async (req, res) => {
@@ -53,7 +59,6 @@ export const forgotPassword = async (req, res) => {
         res.status(500).json({ error: "Error en el servidor" });
     }
 };
-
 
 // RESTABLECER CONTRASEÑA (Reset Password)
 export const resetPassword = async (req, res) => {
@@ -104,8 +109,6 @@ export const resetPassword = async (req, res) => {
     }
 };
 
-
-
 // Esquema de validación para Registro
 const registerSchema = z.object({
     fullName: z.string().min(3, "El nombre completo debe tener al menos 3 caracteres"),
@@ -120,7 +123,6 @@ const registerSchema = z.object({
 });
 
 export const register = async (req, res) => {
-    
     try {
         // Validar los datos de entrada
         const validation = registerSchema.safeParse(req.body);
@@ -149,7 +151,6 @@ export const register = async (req, res) => {
         }
 
         // Verificar si el USERNAME (Slug) ya existe
-        // Convertimos a minúsculas para asegurar unicidad (JuanPerez = juanperez)
         const desiredSlug = data.username.toLowerCase();
 
         const existingSlug = await prisma.barber.findUnique({
@@ -209,7 +210,6 @@ export const register = async (req, res) => {
         console.error(error);
         res.status(500).json({ error: "Error interno del servidor" });
     }
-
 };
 
 // Esquema de validación para Login
@@ -226,14 +226,14 @@ export const login = async (req, res) => {
       where: { email: data.email }
     });
 
+    if (!user) {
+      return res.status(401).json({ error: "Credenciales inválidas" });
+    }
+
     if(!user.passwordHash) {
         return res.status(400).json({
             error: "Este correo está registrado con Google. Por favor usa el botón de 'Iniciar con Google'."
         })
-    }
-
-    if (!user) {
-      return res.status(401).json({ error: "Credenciales inválidas" });
     }
 
     const isValid = await comparePassword(data.password, user.passwordHash);
@@ -251,9 +251,10 @@ export const login = async (req, res) => {
       role: user.role 
     });
 
-    res.json({
+    // Ahora enviamos el token también como Cookie
+    res.cookie('token', token, getCookieOptions()).json({
       message: "Bienvenido de nuevo",
-      token: token,
+      token: token, // Lo mantenemos en el JSON por si acaso
       user: {
         id: user.id,
         fullName: user.fullName,
@@ -363,9 +364,10 @@ export const googleLogin = async (req, res) => {
         // Generar JWT del sistema
         const token = signToken(barber.id);
 
-        res.json({
+        // Inyectamos el token en la Cookie HttpOnly
+        res.cookie('token', token, getCookieOptions()).json({
             status: 'success',
-            token,
+            token, // Lo mantenemos en el JSON por compatibilidad
             data: {
                 barber: {
                     id: barber.id,
@@ -385,4 +387,13 @@ export const googleLogin = async (req, res) => {
             detalle: error.message || "Error desconocido"
         });
     }
+};
+
+// Función para destruir la cookie y cerrar sesión
+export const logout = (req, res) => {
+    res.clearCookie('token', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    }).json({ message: "Sesión cerrada exitosamente" });
 };
