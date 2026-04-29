@@ -5,7 +5,8 @@ import {
         getProfile,
         googleLogin,
         forgotPassword,
-        resetPassword 
+        resetPassword,
+        logout
     } from '../controllers/authController.js';
 import { protect } from '../middlewares/authMiddleware.js';
 
@@ -24,5 +25,6 @@ router.post('/reset-password/:token', resetPassword);
 // Rutas Privadas (Autenticadas)
 router.use(protect);
 router.get('/profile', getProfile);
+router.post('/logout', logout);
 
 export default router;
