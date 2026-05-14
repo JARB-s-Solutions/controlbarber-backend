@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from "../config/prisma.js";
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
@@ -8,7 +8,6 @@ import { sendAppointmentReminderEmail } from '../utils/email.js'; // (La crearem
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const prisma = new PrismaClient();
 
 // Función que busca y envía recordatorios
 const checkAndSendReminders = async () => {

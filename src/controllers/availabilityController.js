@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from "../config/prisma.js";
 import { z } from 'zod';
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween.js';
@@ -10,7 +10,6 @@ dayjs.extend(isBetween);
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const prisma = new PrismaClient();
 
 // Validación de entrada
 const availabilitySchema = z.object({

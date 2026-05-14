@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../config/prisma.js";
 import { z } from "zod";
 import { hashPassword } from "../utils/password.js";
 import { comparePassword } from "../utils/password.js";
@@ -9,7 +9,6 @@ import { randomBytes, createHash } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { sendPasswordResetEmail } from "../utils/email.js"
 
-const prisma = new PrismaClient();
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Opciones centrales para inyectar la Cookie de forma segura

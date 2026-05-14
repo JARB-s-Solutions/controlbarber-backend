@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from "../config/prisma.js";
 import { z } from 'zod';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
@@ -13,7 +13,6 @@ import { checkPlanLimits } from '../utils/permissions.js';
 
 dayjs.extend(utc);
 
-const prisma = new PrismaClient();
 
 const createAppointmentSchema = z.object({
     barberId: z.string().uuid(),

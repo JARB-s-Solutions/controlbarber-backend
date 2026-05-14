@@ -1,7 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from "../config/prisma.js";
 import { z } from 'zod';
 
-const prisma = new PrismaClient();
 
 // Validación para actualizar ubicación
 const locationSchema = z.object({

@@ -1,8 +1,7 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from "../config/prisma.js";
 import { z } from 'zod';
 import { checkPlanLimits } from "../utils/permissions.js"
 
-const prisma = new PrismaClient();
 
 // Esquema de validación
 const serviceSchema = z.object({
