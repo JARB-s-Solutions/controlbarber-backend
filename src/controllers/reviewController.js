@@ -1,10 +1,9 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from "../config/prisma.js";
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
 import { createNotification } from './notificationController.js';
 import { sendNewReviewNotificationToBarber } from '../utils/email.js';
 
-const prisma = new PrismaClient();
 
 const reviewSchema = z.object({
     token: z.string(),

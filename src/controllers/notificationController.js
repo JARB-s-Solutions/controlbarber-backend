@@ -1,6 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from "../config/prisma.js";
 
 // Úsalo en otros controladores: await createNotification(barberId, "Nueva Cita", "Juan reservó a las 5pm");
 export const createNotification = async (barberId, title, message) => {

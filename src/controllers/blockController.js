@@ -1,9 +1,8 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from "../config/prisma.js";
 import { z } from 'zod';
 import dayjs from 'dayjs';
 import { sendAppointmentCancellation } from "../utils/email.js"
 
-const prisma = new PrismaClient();
 
 // Esquema de validación
 const blockSchema = z.object({

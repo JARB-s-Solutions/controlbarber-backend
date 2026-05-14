@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from "../config/prisma.js";
 import { z } from 'zod';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat.js';
@@ -10,7 +10,6 @@ dayjs.extend(customParseFormat);
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const prisma = new PrismaClient();
 
 // Helper: Convierte "15:00" a Date, FORZANDO UTC directo
 const timeToDate = (timeString) => {

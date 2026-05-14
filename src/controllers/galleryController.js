@@ -1,9 +1,8 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from "../config/prisma.js";
 import cloudinary from '../config/cloudinary.js';
 import streamifier from 'streamifier';
 import { checkPlanLimits } from "../utils/permissions.js"
 
-const prisma = new PrismaClient();
 
 // Helper para subir buffer a Cloudinary (Promesa)
 const streamUpload = (buffer) => {

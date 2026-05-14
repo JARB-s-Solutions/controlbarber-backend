@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from "../config/prisma.js";
 import { z } from 'zod';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
@@ -7,7 +7,6 @@ import timezone from 'dayjs/plugin/timezone.js';
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const prisma = new PrismaClient();
 
 // --- HELPER: Verificar si la caja está abierta ---
 const ensureDayIsOpen = async (barberId, date) => {
